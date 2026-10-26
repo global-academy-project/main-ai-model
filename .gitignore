@@ -1,0 +1,59 @@
+# Private
+/docs/private-attachment
+.env
+
+#### IDE
+.vs/
+.vscode/
+.idea/
+
+# Visual Studio
+Debug/
+Release/
+x64/
+x86/
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# IntelliJ project files
+*.iml
+
+#### Programming Language
+# Node.js
+node_modules/
+packages/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Java / Spring Boot
+*.class
+*.log
+*.ctxt
+hs_err_pid*
+.gradle/
+build/
+target/
+out/
+*.jar
+*.war
+*.ear
+*.nar
+!gradle/wrapper/gradle-wrapper.jar
+!.mvn/wrapper/maven-wrapper.jar

@@ -1,0 +1,63 @@
+name: PR Automation
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, closed]
+  issues:
+    types: [opened, reopened, edited, closed]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run the workflow on'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  pull_request_apply:
+    # closed(머지 포함) 시 PR body가 다시 덮어써지지 않도록 특정 action에서만 실행
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(fromJSON('["opened"]'), github.event.action))
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Detect locale and update PR body
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          PR_ASSIGNEES: ${{ github.event.pull_request.user.login }}
+        run: |
+          chmod +x .github/scripts/pull-request-temp-apply.sh
+          ./.github/scripts/pull-request-temp-apply.sh
+    
+  issue_apply:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       contains(fromJSON('["opened"]'), github.event.action))
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Detect locale and update issue body
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          ISSUE_ASSIGNEES: ${{ github.event.issue.user.login }}
+        run: |
+          chmod +x .github/scripts/issue-report-temp-apply.sh
+          ./.github/scripts/issue-report-temp-apply.sh
