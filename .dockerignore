@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# GitHub and Git related files
+.github/
+.git/
+.gitignore
+
+# Project documentation and configuration files
+LICENSE
+README.md
+SECURITY.md
+SUPPORT.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+CHANGELOG.md
+
+# Docker related files
+Dockerfile
+docker-compose.yml
+.dockerignore

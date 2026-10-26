@@ -1,0 +1,14 @@
+OCR mini 기능 안내서
+OCR mini는 PDF 문서에서 텍스트를 추출하고 요약하는 백엔드 서비스입니다. 업로드된 문서는 최대 50페이지까지 처리할 수 있으며, 페이지 순서대로 결과가 반환됩니다.
+텍스트 레이어가 있는 페이지는 OCR을 거치지 않고 바로 텍스트를 읽어 옵니다. 글자 수가 20자 미만인 페이지는 스캔 이미지로 판단하여 OCR 엔진으로 처리합니다.
+Version 1.0 released on 2026-10-22. Contact: support@example.com
+
+2. 처리 흐름
+첫째, 파일의 형식과 크기를 검사합니다. 둘째, 허용된 엔진인지 확인합니다. 셋째, 페이지별로 텍스트를 추출하거나 OCR을 수행합니다. 넷째, 전체 텍스트를 요약하여 응답에 포함합니다.
+The service supports three OCR engines: Tesseract, Paddle, and OpenAI. In a closed network, external engines are blocked before any engine object is loaded.
+처리 시간은 페이지마다 측정되며 단위는 밀리초입니다. 예를 들어 3페이지 문서가 1,250ms 걸렸다면 평균은 약 417ms입니다.
+
+3. 응답 형식과 주의 사항
+응답에는 engine, networkMode, pageCount, totalMs, pages, summary 필드가 포함됩니다. 신뢰도는 0.0에서 1.0 사이의 값이며 텍스트 레이어 페이지에서는 제공되지 않습니다.
+표 예시: 항목 A는 12,300원, 항목 B는 45,600원, 합계는 57,900원입니다. 숫자와 단위가 정확히 인식되는지 확인하세요.
+OCR 결과는 원본과 다를 수 있으므로 중요한 문서는 반드시 사람이 검수해야 합니다. Quality depends on image resolution, skew, and noise.
