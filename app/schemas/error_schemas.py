@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from app.schemas.base import BaseResponse
+from .base_schemas import BaseResponse
 
 class ErrorDetail(BaseModel):
     """에러의 세부 사유 하나.

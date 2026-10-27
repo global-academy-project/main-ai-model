@@ -1,18 +1,15 @@
 import logging
 from fastapi import Request
-from fastapi.exceptions import (
-    RequestValidationError,
-)
 from fastapi.responses import JSONResponse
-from app.schemas.error import ErrorDetail, ErrorResponse, ErrorBody
-from app.exceptions.business_errors import BusinessError
-from app.exceptions.app_errors import AppError
+from app.schemas import ErrorDetail, ErrorResponse, ErrorBody
+from app.exceptions import BusinessError, LLMError, to_error_info
+
+logger = logging.getLogger(__name__)
 
 """예외 핸들러.
 
 예외를 에러 응답(`ErrorResponse`)으로 변환하는 FastAPI 핸들러 모음.
 """
-logger = logging.getLogger(__name__)
 
 def build_error_response(
     *,
@@ -54,48 +51,13 @@ async def business_error_handler(
         details=exc.details,
     )
 
-async def validation_error_handler(
-    request: Request,
-    exc: RequestValidationError,
-) -> JSONResponse:
-    
-    return JSONResponse(
-        status_code=422,
-        content={
-            "code": "VALIDATION_ERROR",
-            "message": (
-                "요청 데이터가 올바르지 않습니다."
-            ),
-            "status": 422,
-            "details": exc.errors(),
-        },
-    )
-
-async def unexpected_error_handler(
-    request: Request,
-    exc: Exception,
-) -> JSONResponse:
-    
-    return JSONResponse(
-        status_code=500,
-        content={
-            "code": "INTERNAL_SERVER_ERROR",
-            "message": (
-                "서버 내부 오류가 발생했습니다."
-            ),
-            "status": 500,
-            "details": None,
-        },
-    )
-
-async def app_error_handler(
-    request: Request,
-    exc: AppError
-) -> JSONResponse:
-    
+async def llm_error_handler(request: Request, exc: LLMError) -> JSONResponse:
+    info = to_error_info(exc)
+    logger.warning("LLM 오류: type=%s code=%s path=%s",
+                   type(exc).__name__, info.code, request.url.path, exc_info=exc)
     return build_error_response(
-        status=exc.status_code,
-        code=exc.code,
-        message=exc.message,
-        details=exc.details,
+        status=info.status,
+        code=info.code,
+        message=info.message,
+        details=[ErrorDetail(reason=d) for d in info.details],   # 필드명은 확인 필요
     )

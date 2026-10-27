@@ -2,7 +2,6 @@ from typing import Literal, get_args
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
-from pathlib import Path
 
 """애플리케이션 설정.
 
@@ -10,9 +9,9 @@ from pathlib import Path
 엔진 선택과 네트워크 모드의 조합은 `Settings` 생성 시점에 검증하므로,
 잘못된 조합이면 서버가 기동되지 않는다.
 """
-BASE_DIR = Path(__file__).resolve().parents[2]
+
 # 사용 가능한 엔진 이름. 엔진을 추가할 때는 external 분류(app.core.engines)도 함께 갱신한다.
-Engine = Literal["AUTO", "PDFIUM", "TESSERACT", "PADDLE", "OPENAI"]
+Engine = Literal["FAKE", "OPENAI", "CATEGORIZATOR"]
 EXTERNAL_ENGINES: frozenset[str] = frozenset({"OPENAI"})
 
 class Settings(BaseSettings):
@@ -23,26 +22,17 @@ class Settings(BaseSettings):
 
     Attributes:
         network_env: 네트워크 환경. CLOSED(폐쇄망)에서는 외부 호출 엔진을 쓸 수 없다.
-        engine: 기본으로 사용할 엔진.
+        default_engine: 어떤 시나리오를 사용할지 결정하는 엔진.
         openai_api_key: OpenAI API 키. engine이 OPENAI일 때만 필요하다.
         openai_model: OpenAI 모델 이름. engine이 OPENAI일 때만 필요하다.
         ai_timeout_seconds: AI 호출 제한 시간(초).
         ai_max_output_tokens: AI 응답의 최대 출력 토큰 수.
-    """
-    app_name: str
-    app_version: str
-    app_env: Literal["development", "test", "production"]
-        
-    debug: bool = False
-
+    """    
     network_env: Literal["OPEN", "CLOSED"]
-    engine: Engine
+    default_llm_engine: Engine
 
     openai_api_key: SecretStr | None = None
     openai_model: str | None = None
-
-    pdf_backend: Literal["PDFIUM"] = "PDFIUM"
-    default_ocr_engine: Literal["TESSERACT", "PADDLE", "OPENAI"] = "OPENAI"
 
     ai_timeout_seconds: float = Field(
         default=30.0,
@@ -67,25 +57,30 @@ class Settings(BaseSettings):
         """선언된 모든 엔진 이름을 반환한다."""
         return list(get_args(Engine))
     
-    def check_engine(self, engine: Engine) -> None:
-        """엔진이 현재 환경에서 실행 가능한지 검증한다.
+    def is_engine_blocked(self, engine: Engine) -> bool:
+        """폐쇄망에서 외부 엔진을 쓰려는가."""
+        return engine in EXTERNAL_ENGINES and self.network_env == "CLOSED"
 
-        Raises:
-            ValueError: 폐쇄망에서 외부 엔진을 고르거나, 필수 설정이 없을 때.
-        """
-        if engine in EXTERNAL_ENGINES and self.network_env == "CLOSED":
-            raise ValueError(f"폐쇄망에서는 {engine}을(를) 사용할 수 없습니다.")
+    def engine_config_problem(self, engine: Engine) -> str | None:
+        """필수 설정이 빠졌으면 사유 문자열, 괜찮으면 None."""
         if engine == "OPENAI":
             if self.openai_api_key is None:
-                raise ValueError("OPENAI를 쓰려면 OPENAI_API_KEY가 필요합니다.")
+                return "OPENAI_API_KEY가 필요합니다."
             if not self.openai_model:
-                raise ValueError("OPENAI를 쓰려면 OPENAI_MODEL이 필요합니다.")
+                return "OPENAI_MODEL이 필요합니다."
+        return None
     
+    def engine_problem(self, engine: Engine) -> str | None:
+        """기동 검증용: 막힘과 설정 문제를 합쳐 사유 하나로."""
+        if self.is_engine_blocked(engine):
+            return f"폐쇄망에서는 {engine}을(를) 사용할 수 없습니다."
+        return self.engine_config_problem(engine)
+
     @model_validator(mode="after")
     def validate_default_engine(self) -> "Settings":
         """기본 엔진이 실행 가능한지 기동 시점에 검증한다."""
-        self.check_engine(self.engine)
-        self.check_engine(self.default_ocr_engine)
+        if problem := self.engine_problem(self.default_llm_engine):
+            raise ValueError(problem)
         return self
     
 @lru_cache
