@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Callable, Union
 from .llm_base import LLMClient
-from llm_types import LLMResponse, Message, ToolCall, ToolSpec
+from .llm_types import LLMResponse, Message, ToolCall, ToolSpec
 
 Step = Union[LLMResponse, Callable[[list[Message]], LLMResponse]]
 
