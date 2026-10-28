@@ -29,7 +29,6 @@ class Settings(BaseSettings):
         ai_max_output_tokens: AI 응답의 최대 출력 토큰 수.
     """    
     network_env: Literal["OPEN", "CLOSED"]
-    default_llm_engine: Engine
 
     openai_api_key: SecretStr | None = None
     openai_model: str | None = None
@@ -44,6 +43,10 @@ class Settings(BaseSettings):
         ge=1,
         le=100_000,
     )
+
+    scenario_engines: dict[str, dict[str, str]] = {
+        "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},
+    }
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -79,7 +82,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_default_engine(self) -> "Settings":
         """기본 엔진이 실행 가능한지 기동 시점에 검증한다."""
-        if problem := self.engine_problem(self.default_llm_engine):
+        if problem := self.engine_problem("CATEGORIZATOR"):
             raise ValueError(problem)
         return self
     

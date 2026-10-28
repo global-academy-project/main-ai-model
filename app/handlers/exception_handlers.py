@@ -2,7 +2,13 @@ import logging
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.schemas import ErrorDetail, ErrorResponse, ErrorBody
-from app.exceptions import BusinessError, LLMError, to_error_info
+from app.exceptions import (
+    BusinessError, 
+    LLMError, 
+    ToolError,
+    to_error_info
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,4 +66,12 @@ async def llm_error_handler(request: Request, exc: LLMError) -> JSONResponse:
         code=info.code,
         message=info.message,
         details=[ErrorDetail(reason=d) for d in info.details],   # 필드명은 확인 필요
+    )
+
+
+async def tool_error_handler(request: Request, exc: ToolError) -> JSONResponse:
+    return build_error_response(
+        status=exc.status_code,
+        code=exc.code,
+        message=exc.message,
     )
