@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from ..tool.tool_registry import ToolRegistry
+from ..tool_registry import ToolRegistry
 from .mock_msds import MSDS_PARAMETERS, lookup_msds
 from .mock_rules import CHECK_RULES_PARAMETERS, check_rules
 from .mock_search import SEARCH_PARAMETERS, search_accidents, search_guides

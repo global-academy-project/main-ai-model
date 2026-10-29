@@ -48,6 +48,10 @@ class Settings(BaseSettings):
         "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},
     }
 
+    # A의 검색 함수 위치 '모듈경로:함수이름' (예: app.rag.tool_backend:build_search_backend).
+    # 비우면 mock 검색 도구를 그대로 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
+    rag_backend: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -52,8 +52,8 @@ from .evidence_collector import MAX_SUMMARY_CHARS, EvidenceCollector, EvidencePa
 from .judgment import JudgeInput, judge, verify
 from .slots import ask_message, full_text, merge_slots, missing_fields
 from .text_rules import sentences
-from .tool.tool_contract import ToolInvoker
-from .tool.tool_registry import RecordingToolInvoker, ToolCallRecord, to_plain
+from ..tools.tool_contract import ToolInvoker
+from ..tools.tool_registry import RecordingToolInvoker, ToolCallRecord, to_plain
 from app.exceptions import ToolError
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ class WorkRegisterAgent:
         if missing := missing_fields(slots, classification.work_types):
             return WorkRegisterResult(
                 run_status="WAITING_INPUT",
-                slots=slots,
+                slots=slots.model_copy(update={"asked_keys": [f.key for f in missing]}),
                 ask={"message": ask_message(missing), "missing_fields": missing},
                 classification=classification,
                 steps=log.steps,

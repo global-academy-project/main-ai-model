@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 from app.llm.llm_base import LLMClient
-from app.agent.tool.tool_contract import ToolInvoker
+from app.tools.tool_contract import ToolInvoker
 from app.exceptions import ToolError
 from . import sufficiency
 from .models import (

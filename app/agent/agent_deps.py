@@ -13,15 +13,16 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Annotated
 from fastapi import Depends
-from app.agent.tool.tool_registry import ToolRegistry
-from .tool.tool_setup import build_tool_registry
+from app.tools.tool_registry import ToolRegistry
+from ..tools.tool_setup import build_tool_registry
 from .work_register import WorkRegisterAgent
 from app.core import Settings, get_settings
 from app.llm.llm_factory import build_llm_client
 
 @lru_cache
 def get_tool_registry() -> ToolRegistry:
-    return build_tool_registry()
+    # RAG_BACKEND가 있으면 검색 도구 2개가 A의 검색으로 바뀐다. 없으면 mock. 설정이 틀리면 첫 호출 때 ValueError.
+    return build_tool_registry(rag_backend=get_settings().rag_backend)
 
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
 

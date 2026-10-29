@@ -4,7 +4,7 @@ FastAPI를 모른다 (Depends, Request 없음). 에이전트와 레지스트리�
 라우터는 이 함수의 반환값을 그대로 내보낸다.
 """
 
-from app.agent.tool.tool_registry import ToolRegistry
+from app.tools.tool_registry import ToolRegistry
 from app.agent.work_register import WorkRegisterAgent
 from app.schemas.agent_work import ToolInfo, WorkRegisterRequest, WorkRegisterResult
 from app.schemas.base_schemas import DataResponse
