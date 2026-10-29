@@ -1,5 +1,0 @@
-# OCR mini - 개발/테스트 의존성
--r requirements.txt         # 운영 의존성 포함
-
-pytest==9.1.1               # 테스트 러너
-

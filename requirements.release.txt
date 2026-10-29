@@ -1,14 +1,5 @@
-# OCR mini - 운영 의존성 (직접 설치한 패키지만 기재)
-# 실제 설치된 모든 라이브러리의 버전 정보는 requirements.lock으로 확인
-
-# --- Web framework ---
-fastapi==0.162.0            # API 서버 프레임워크
-uvicorn[standard]==0.54.0   # ASGI 서버 (실행: uvicorn app.main:app)
-pydantic==2.14.1            # 요청/응답 스키마 (PdfInput, SummaryResponse)
-pydantic-settings==2.16.1   # 환경변수/.env 기반 설정 관리 (BaseSettings)
-
-# --- AI Model ---
-transformers==5.21.0        # Hugging face 연결
+# 배포 의존성
+-r requirements.txt         # 운영 의존성 포함
 # Keep PyPI for other packages and select CPU-only PyTorch wheels explicitly.
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.9.1+cpu

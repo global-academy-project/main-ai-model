@@ -12,17 +12,27 @@ from __future__ import annotations
 from collections.abc import Callable
 from app.agent.classify import CLASSIFY_WORK_PARAMETERS, classify_work
 from app.agent.fill_form import FILL_FORM_PARAMETERS, fill_form
+from .adapters.rag_tools import register_rag_tools
+from .rag_loader import load_search_backend
 from .tool_registry import ToolRegistry
 
-def build_tool_registry(*, extra: Callable[[ToolRegistry], None] | None = None) -> ToolRegistry:
-    """B의 실제 도구 + A·C의 mock 도구. extra로 실제 도구를 덮어쓸 수 있다 (replace=True로 등록)."""
-    from ..mock_tools import register_mock_tools  # mock은 이 함수 안에서만 임포트한다
+def build_tool_registry(
+    *, extra: Callable[[ToolRegistry], None] | None = None, rag_backend: str | None = None
+) -> ToolRegistry:
+    """B의 실제 도구 + A·C의 mock 도구. extra로 실제 도구를 덮어쓸 수 있다 (replace=True로 등록).
+
+    rag_backend('모듈경로:함수이름', Settings.rag_backend)가 있으면 search_accidents · search_guides를 A의 검색으로 바꾼다.
+    비어 있으면 mock 그대로다. 잘못된 값은 ValueError. 적용 순서는 mock → RAG → extra다.
+    """
+    from .mock import register_mock_tools  # mock은 이 함수 안에서만 임포트한다
 
     registry = ToolRegistry()
     registry.register("classify_work", classify_work, owner="B", description="작업유형 판별, 고위험 여부와 필요한 허가 (규칙 기반)",
                       parameters=CLASSIFY_WORK_PARAMETERS)
     registry.register("fill_form", fill_form, owner="B", description="관리 항목 초안 작성과 스키마 검증", parameters=FILL_FORM_PARAMETERS)
     register_mock_tools(registry)
+    if (rag := load_search_backend(rag_backend)) is not None:
+        register_rag_tools(registry, rag.search, backend_errors=rag.errors)
     if extra is not None:
         extra(registry)
     return registry

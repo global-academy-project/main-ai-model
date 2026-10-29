@@ -19,7 +19,7 @@ from ..evidence_collector.recorder import StepEmitter
 from ..evidence_collector.searcher import Searcher, SearchState
 from ..evidence_collector.textutil import one_line
 from ..evidence_collector.vocab import DEFAULT_CORPORA, MAX_QUERY_CHARS, Corpus
-from ..tool.tool_contract import ToolInvoker
+from ...tools.tool_contract import ToolInvoker
 
 PURPOSE = "시나리오 분류 참고"
 
