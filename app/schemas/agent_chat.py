@@ -20,7 +20,7 @@ from pydantic import Field, model_validator
 from .agent_work import WorkRegisterResult, WorkSlots
 from .base_schemas import CamelModel
 
-ScenarioCode = Literal["A", "B", "C", "D", "E", "F"]
+ScenarioCode = Literal["A", "D", "E", "F"]
 AskKind = Literal["SCENARIO", "SLOT"]
 MAX_MESSAGE_CHARS = 2000
 
