@@ -9,8 +9,3 @@ pydantic-settings==2.16.1   # 환경변수/.env 기반 설정 관리 (BaseSettin
 
 # --- AI Model ---
 transformers==5.21.0        # Hugging face 연결
-# Keep PyPI for other packages and select CPU-only PyTorch wheels explicitly.
-# --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.9.1+cpu
-torchvision==0.24.1
-torchaudio==2.9.1
