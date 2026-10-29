@@ -21,7 +21,7 @@ from .models import EvidenceItem, SearchFailure, SearchQuery, SearchToolOutput, 
 from .recorder import StepEmitter
 from .vocab import Corpus
 from app.exceptions import ToolError
-from app.agent.tool.tool_contract import ToolInvoker
+from app.tools.tool_contract import ToolInvoker
 
 logger = logging.getLogger(__name__)
 

@@ -88,10 +88,10 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             raise ToolError(
-                code="NOT_FOUND", 
+                code="TOOL_NOT_FOUND", 
                 message=f"'{name}' 도구가 등록되어 있지 않습니다.", 
                 tool=name,
-                status_code=404)
+                )
         return tool.handler(arguments)
 
 

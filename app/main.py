@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.api import health_router, test_router
+from app.api import health_router, chat_router
 from app.core import get_settings
 from app.exceptions import BusinessError, LLMError
 from app.handlers import (
@@ -27,4 +27,4 @@ def create_app() -> FastAPI:
 app = create_app()
 
 app.include_router(health_router)
-app.include_router(test_router)
+app.include_router(chat_router)

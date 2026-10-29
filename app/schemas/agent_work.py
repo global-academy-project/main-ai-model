@@ -48,6 +48,7 @@ class WorkSlots(CamelModel):
     measurements: dict[MeasurementItem, float] = Field(default_factory=dict)
     fire_watcher: str | None = None
     attendant: str | None = None
+    asked_keys: list[str] = Field(default_factory=list, description="직전에 되물은 항목 key. 다음 발화의 짧은 답('3', '없음')을 읽는 데 쓴다")
 
 
 class WorkRegisterRequest(BaseModel):

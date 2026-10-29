@@ -1,0 +1,7 @@
+# OCR mini - 개발/테스트 의존성
+-r requirements.txt         # 운영 의존성 포함
+
+pytest==9.1.1               # 테스트 러너
+torch==2.9.1                # release 버전과 설치 충돌로 인해 dev로 분리
+torchvision==0.24.1         # release 버전과 설치 충돌로 인해 dev로 분리
+torchaudio==2.9.1           # release 버전과 설치 충돌로 인해 dev로 분리
