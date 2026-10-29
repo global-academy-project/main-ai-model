@@ -17,7 +17,6 @@ FastAPI를 알지 못하며, HTTP 응답으로의 변환은 `tool_error_handler`
 class ToolError(Exception):
     def __init__(
         self,
-        *,
         code: str,
         message: str,
         status_code: int | None = None,
