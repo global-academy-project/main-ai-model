@@ -13,8 +13,8 @@ runStatus 값은 agent_runs.status 코드(WAITING_INPUT, DONE)와 같다.
 (Spring DTO 규칙이 정해지면 바꾼다. 지침 9장).
 """
 from __future__ import annotations
-from typing import Any, Literal
-from pydantic import Field, BaseModel
+from typing import Any, Literal, Annotated
+from pydantic import Field, BaseModel, Field
 from .base_schemas import CamelModel
 from .forms import (
     Citation,
@@ -27,7 +27,7 @@ from .forms import (
 )
 
 MAX_UTTERANCES = 10
-
+PositiveId = Annotated[int, Field(strict=True, gt=0)]
 
 class WorkSlots(CamelModel):
     """되묻기 체크리스트 항목. 응답으로 받은 값을 다음 요청에 그대로 다시 보낸다.
@@ -40,6 +40,7 @@ class WorkSlots(CamelModel):
     nearby_materials_none: bool = Field(default=False, description="'주변 물질 없음'이라고 답했다")
     material_locations: dict[str, str] = Field(default_factory=dict, description="물질 → 보관 위치")
     headcount: int | None = Field(default=None, ge=1, le=500)
+    workDate: str | None = None
     start_time: str | None = None
     end_time: str | None = None
     equipment: list[str] = Field(default_factory=list)
@@ -55,7 +56,9 @@ class WorkRegisterRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000, description="이번 작업책임자 발화")
     slots: WorkSlots | None = Field(default=None, description="이전 응답의 slots. 첫 요청이면 비운다")
     mode: Literal["VERIFY", "GUIDE"] = Field(default="VERIFY", description="sites.mode. GUIDE면 쉬운 말 안내를 붙인다")
-
+    run_id: PositiveId | None = None
+    site_id: PositiveId | None = None
+    permit_id: PositiveId | None = None
 
 class MissingField(BaseModel):
     key: str
@@ -180,7 +183,8 @@ class AgentStepDto(CamelModel):
     output: dict[str, Any]
     elapsed_ms: int
     error_code: str | None = None
-
+    run_id: PositiveId
+    site_id: PositiveId
 
 class LlmSources(BaseModel):
     plan: Literal["llm", "fallback"] | None = None

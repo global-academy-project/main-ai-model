@@ -14,6 +14,9 @@ from functools import lru_cache
 Engine = Literal["FAKE", "OPENAI", "CATEGORIZATOR"]
 EXTERNAL_ENGINES: frozenset[str] = frozenset({"OPENAI"})
 
+_SCENARIO_KEYS = frozenset({"router", "default", "A", "B", "C", "D", "E", "F"})
+_BINDING_FIELDS = frozenset({"engine", "model_id"})
+
 class Settings(BaseSettings):
     """환경 변수 기반 애플리케이션 설정.
 
@@ -44,9 +47,15 @@ class Settings(BaseSettings):
         le=100_000,
     )
 
-    scenario_engines: dict[str, dict[str, str]] = {
-        "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},
-    }
+    check_rules_tool: Literal["MOCK", "SPRING"]
+    internal_api_base_url: str | None = None
+    internal_api_token: SecretStr | None = None
+
+    scenario_engines: dict[str, dict[str, str]] = Field(
+        default_factory=lambda: {
+            "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},
+        }
+    )
 
     # A의 검색 함수 위치 '모듈경로:함수이름' (예: app.rag.tool_backend:build_search_backend).
     # 비우면 mock 검색 도구를 그대로 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
@@ -83,13 +92,43 @@ class Settings(BaseSettings):
             return f"폐쇄망에서는 {engine}을(를) 사용할 수 없습니다."
         return self.engine_config_problem(engine)
 
+    def scenario_binding_problem(self, key: str, binding: dict[str, str]) -> str | None:
+        """SCENARIO_ENGINES 항목 하나의 문제. 없으면 None."""
+        if key not in _SCENARIO_KEYS:
+            return f"SCENARIO_ENGINES의 키 '{key}'를 알 수 없습니다."
+        if unknown := binding.keys() - _BINDING_FIELDS:
+            return f"SCENARIO_ENGINES['{key}']에 알 수 없는 항목이 있습니다: {sorted(unknown)}"
+        engine = binding.get("engine")
+        if engine not in get_args(Engine):
+            return f"SCENARIO_ENGINES['{key}']의 엔진 '{engine}'은 지원하지 않습니다."
+        model_id = binding.get("model_id")
+        if model_id is not None:
+            if engine != "CATEGORIZATOR":
+                return f"SCENARIO_ENGINES['{key}']: model_id는 CATEGORIZATOR 엔진만 받습니다."
+            if not model_id.strip():
+                return f"SCENARIO_ENGINES['{key}']의 model_id가 비어 있습니다."
+        elif engine == "CATEGORIZATOR" and not self.categorizator_model_id:
+            return f"SCENARIO_ENGINES['{key}']: model_id 또는 CATEGORIZATOR_MODEL_ID가 필요합니다."
+        return self.engine_problem(engine)  # 막힌 엔진, 설정 문제는 기존 규칙 그대로
+    
     @model_validator(mode="after")
     def validate_default_engine(self) -> "Settings":
         """기본 엔진이 실행 가능한지 기동 시점에 검증한다."""
-        if problem := self.engine_problem("CATEGORIZATOR"):
-            raise ValueError(problem)
+        for key, binding in self.scenario_engines.items():
+            if problem := self.scenario_binding_problem(key, binding):
+                raise ValueError(problem)
         return self
-    
+
+    @model_validator(mode="after")
+    def validate_internal_api(self) -> "Settings":
+        """agent를 spring에서 규칙 확인할 수 있는지 기동 시점에 검증한다."""
+        if self.check_rules_tool == "SPRING":
+            if self.internal_api_base_url is None:
+                raise ValueError("internal_api_base_url이 필요합니다.")
+            if self.internal_api_token is None:
+                raise ValueError("internal_api_token 필요합니다.")
+        return self
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
