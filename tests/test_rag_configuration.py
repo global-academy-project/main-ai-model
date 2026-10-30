@@ -5,14 +5,14 @@ from urllib.error import URLError
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import RagEnvironmentSettings, Settings
 from app.exceptions import ToolError
 from app.rag import http
-from app.rag.config import RagSettings
+from app.rag.config import RagEnvironmentSettings, RagSettings
 from app.tools.adapters.rag_tools import register_rag_tools
 from app.tools.rag_loader import load_search_backend
 from app.tools.tool_registry import ToolRegistry
 from app.tools.tool_setup import build_tool_registry
+from scripts import try_rag_tools
 
 
 @pytest.fixture(autouse=True)
@@ -26,20 +26,19 @@ def isolated_environment(monkeypatch, tmp_path):
         monkeypatch.delenv(name, raising=False)
 
 
-def test_existing_settings_still_default_to_mock():
-    settings = Settings(network_env="CLOSED")
-    assert settings.rag_backend is None
+def test_rag_defaults_do_not_require_application_settings():
+    settings = RagEnvironmentSettings()
     assert settings.embedding_url is None
     assert settings.embedding_dim == 1024
     assert settings.embedding_model == "BAAI/bge-m3"
-    registry = build_tool_registry(rag_backend=settings.rag_backend)
+    registry = build_tool_registry(rag_backend=None)
     assert all(
         tool.mock for tool in registry.tools()
         if tool.name in {"search_accidents", "search_guides"}
     )
 
 
-def test_core_and_backend_share_infra_environment(monkeypatch):
+def test_backend_reads_infra_environment(monkeypatch):
     variables = {
         "EMBEDDING_URL": "http://embedding:8000/v1/embeddings/",
         "EMBEDDING_MODEL": "deployment-model",
@@ -52,9 +51,9 @@ def test_core_and_backend_share_infra_environment(monkeypatch):
     }
     for name, value in variables.items():
         monkeypatch.setenv(name, value)
-    core = Settings(network_env="CLOSED")
+    environment = RagEnvironmentSettings()
     backend = RagSettings.from_env()
-    assert backend == RagSettings.from_settings(core)
+    assert backend == RagSettings.from_settings(environment)
     assert backend.embedding_url == "http://embedding:8000/v1/embeddings"
     assert backend.qdrant_url == "http://qdrant-server:6333"
     assert backend.embedding_model == "deployment-model"
@@ -62,12 +61,12 @@ def test_core_and_backend_share_infra_environment(monkeypatch):
     assert backend.timeout_seconds == 7.5
     assert backend.embedding_api_key == "test-embedding-key"
     assert backend.qdrant_api_key == "test-reader-key"
-    for representation in (repr(core), repr(backend)):
+    for representation in (repr(environment), repr(backend)):
         assert "test-embedding-key" not in representation
         assert "test-reader-key" not in representation
 
 
-def test_dotenv_is_shared_and_environment_has_priority(monkeypatch, tmp_path):
+def test_dotenv_loading_and_environment_priority(monkeypatch, tmp_path):
     (tmp_path / ".env").write_text(
         "EMBEDDING_URL=http://embedding/v1/embeddings\nEMBEDDING_DIM=8\n",
         encoding="utf-8",
@@ -75,7 +74,7 @@ def test_dotenv_is_shared_and_environment_has_priority(monkeypatch, tmp_path):
     assert RagSettings.from_env().embedding_dim == 8
     monkeypatch.setenv("EMBEDDING_DIM", "16")
     assert RagSettings.from_env().embedding_dim == 16
-    assert Settings(network_env="CLOSED").embedding_dim == 16
+    assert RagEnvironmentSettings().embedding_dim == 16
 
 
 def test_embedding_endpoint_only_required_when_building_backend():
@@ -207,3 +206,34 @@ def test_connection_error_still_maps_to_tool_unavailable(monkeypatch):
     with pytest.raises(ToolError) as error:
         registry.call("search_guides", {"query": "fire"})
     assert error.value.code == "TOOL_UNAVAILABLE"
+
+
+def test_cli_loads_backend_and_checks_both_tools(monkeypatch, capsys):
+    monkeypatch.setenv("EMBEDDING_URL", "http://embedding/v1/embeddings")
+    monkeypatch.setenv("EMBEDDING_DIM", "2")
+    calls = []
+
+    def respond(request, timeout):
+        calls.append(request.full_url)
+        if request.full_url == "http://embedding/v1/embeddings":
+            result = {"data": [{"embedding": [0.1, 0.2]}]}
+        else:
+            result = {"result": {"points": []}}
+        return BytesIO(json.dumps(result).encode())
+
+    monkeypatch.setattr(http, "urlopen", respond)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "try_rag_tools.py",
+            "--backend", "app.rag.tool_backend:build_search_backend",
+            "--k", "3", "fire",
+        ],
+    )
+    assert try_rag_tools.main() == 0
+    output = capsys.readouterr().out
+    assert "[search_accidents]" in output
+    assert "[search_guides]" in output
+    assert len(calls) == 4
+    assert "/kb_accidents/" in calls[1]
+    assert "/kb_guides/" in calls[3]
