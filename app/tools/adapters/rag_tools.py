@@ -3,7 +3,7 @@
     register_rag_tools(registry, backend, backend_errors=(RagError,), filters_by_tool={...})
 
 `replace=True`로 덮어쓰므로 mock이 먼저 깔려 있어야 한다. 이미 등록된 이름이 없으면 그냥 새로 등록된다.
-`filters_by_tool`의 값(예: doc_type)은 A가 적재한 메타데이터와 맞춰야 한다. 아직 미정이라 기본값은 비어 있다.
+기본 collection 필터는 사고사례와 지침을 분리한다. filters_by_tool로 등록 시 변경할 수 있다.
 """
 
 from __future__ import annotations
@@ -16,6 +16,11 @@ from .rag_search import SEARCH_TOOL_PARAMETERS, SearchBackend, make_search_tool
 SEARCH_TOOLS: dict[str, str] = {
     "search_accidents": "사고 사례를 검색한다 (재해 사례, 아차사고).",
     "search_guides": "안전 지침·기술지침·법령 조항을 검색한다.",
+}
+
+DEFAULT_FILTERS_BY_TOOL: dict[str, dict[str, str]] = {
+    "search_accidents": {"collection": "kb_accidents"},
+    "search_guides": {"collection": "kb_guides"},
 }
 
 
@@ -31,7 +36,8 @@ def register_rag_tools(
     filters_by_tool = filters_by_tool or {}
     registered: list[str] = []
     for name, description in SEARCH_TOOLS.items():
-        function = make_search_tool(name, backend, filters=filters_by_tool.get(name), backend_errors=backend_errors)
+        filters = {**DEFAULT_FILTERS_BY_TOOL[name], **filters_by_tool.get(name, {})}
+        function = make_search_tool(name, backend, filters=filters, backend_errors=backend_errors)
         registry.register(name, function, owner=owner, description=description, parameters=SEARCH_TOOL_PARAMETERS, replace=True)
         registered.append(name)
     return registered
