@@ -14,7 +14,7 @@ runStatus 값은 agent_runs.status 코드(WAITING_INPUT, DONE)와 같다.
 """
 from __future__ import annotations
 from typing import Any, Literal, Annotated
-from pydantic import Field, BaseModel, Field
+from pydantic import Field, BaseModel
 from .base_schemas import CamelModel
 from .forms import (
     Citation,
@@ -52,7 +52,7 @@ class WorkSlots(CamelModel):
     asked_keys: list[str] = Field(default_factory=list, description="직전에 되물은 항목 key. 다음 발화의 짧은 답('3', '없음')을 읽는 데 쓴다")
 
 
-class WorkRegisterRequest(BaseModel):
+class WorkRegisterRequest(CamelModel):
     message: str = Field(min_length=1, max_length=2000, description="이번 작업책임자 발화")
     slots: WorkSlots | None = Field(default=None, description="이전 응답의 slots. 첫 요청이면 비운다")
     mode: Literal["VERIFY", "GUIDE"] = Field(default="VERIFY", description="sites.mode. GUIDE면 쉬운 말 안내를 붙인다")
