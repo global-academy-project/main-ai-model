@@ -1,8 +1,10 @@
 from typing import Literal, get_args
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
-from urllib.parse import urlsplit
+
+
+rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
 
 """애플리케이션 설정.
 
@@ -15,43 +17,7 @@ from urllib.parse import urlsplit
 Engine = Literal["FAKE", "OPENAI", "CATEGORIZATOR"]
 EXTERNAL_ENGINES: frozenset[str] = frozenset({"OPENAI"})
 
-class RagEnvironmentSettings(BaseSettings):
-    """Infra에서 주입하는 RAG 설정. 검색 CLI는 LLM 설정 없이도 사용할 수 있다."""
-
-    embedding_url: str | None = None
-    embedding_model: str = Field(default="BAAI/bge-m3", min_length=1)
-    embedding_dim: int = Field(default=1024, gt=0)
-    embedding_api_key: SecretStr | None = None
-    qdrant_url: str = "http://qdrant:6333"
-    qdrant_read_only_api_key: SecretStr | None = None
-    rag_search_timeout_seconds: float = Field(default=15.0, gt=0, allow_inf_nan=False)
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-    @field_validator("embedding_url", "qdrant_url")
-    @classmethod
-    def validate_rag_url(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        parsed = urlsplit(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("RAG URL은 http 또는 https URL이어야 합니다.")
-        return value.rstrip("/")
-
-    @field_validator("embedding_model")
-    @classmethod
-    def validate_embedding_model(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("EMBEDDING_MODEL은 비어 있을 수 없습니다.")
-        return value
-
-
-class Settings(RagEnvironmentSettings):
+class Settings(BaseSettings):
     """환경 변수 기반 애플리케이션 설정.
 
     필드 이름은 대소문자를 구분하지 않는 환경 변수 이름과 대응한다.
