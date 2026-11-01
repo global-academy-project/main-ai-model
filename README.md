@@ -7,7 +7,7 @@ The Dockerfile provides two CPU-only runtime targets:
 | Target | Application | Port |
 | --- | --- | --- |
 | `api` (default) | General AI API | 60100 |
-| `embedding` | BGE-M3 embedding API | 60101 |
+| `embedding` | BGE-M3 embedding API | 60110 |
 
 Both targets share the dependency builder because the general API also runs
 local Transformers models. Only the installed virtual environment and application
