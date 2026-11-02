@@ -1,6 +1,8 @@
 """시나리오별 LLM 엔진·모델 제공자.
 
-`SCENARIO_ENGINES`(환경 변수, JSON)로 시나리오마다 어떤 엔진·모델을 쓸지 정한다.
+시나리오마다 어떤 엔진·모델을 쓸지는 `app/core/config.py`의 `SCENARIO_MODELS` 표에서 정한다
+(`Settings.scenario_engines`의 기본값). `.env`에 `SCENARIO_ENGINES`(JSON)가 있으면 표 전체 대신 그것을 쓴다.
+실제 적용 결과는 `explain()` / `python scripts/show_scenario_models.py`로 본다 (서버 기동 로그에도 남는다).
 
     SCENARIO_ENGINES='{
       "router":  {"engine": "CATEGORIZATOR", "model_id": "작은-분류-모델"},
@@ -22,6 +24,7 @@
 """
 from __future__ import annotations
 import json
+import logging
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -31,6 +34,8 @@ from app.core import Engine
 
 from .llm_base import LLMClient
 
+logger = logging.getLogger(__name__)
+
 ROUTER_KEY = "router"
 DEFAULT_KEY = "default"
 SCENARIO_KEYS: tuple[str, ...] = ("A", "B", "C", "D", "E", "F")
@@ -38,10 +43,24 @@ VALID_KEYS: tuple[str, ...] = (ROUTER_KEY, DEFAULT_KEY, *SCENARIO_KEYS)
 _ENGINES: tuple[str, ...] = get_args(Engine)
 _BINDING_FIELDS = {"engine", "model_id"}
 
+ORIGIN_CONFIG = "config.py 표"
+ORIGIN_ENV = ".env SCENARIO_ENGINES"
+ORIGIN_DEFAULT_ENGINE = "DEFAULT_LLM_ENGINE"
+
 @dataclass(frozen=True)
 class EngineBinding:
     engine: str
     model_id: str | None = None  # None이면 엔진의 기본 모델 설정을 쓴다
+
+@dataclass(frozen=True)
+class ModelChoice:
+    """`explain()` 한 줄: 이 키는 어떤 엔진·모델을 쓰고, 그 값은 어디서 왔나."""
+
+    key: str
+    engine: str
+    model_id: str | None
+    origin: str  # ORIGIN_CONFIG | ORIGIN_ENV (+ " [default]") | ORIGIN_DEFAULT_ENGINE
+
 
 def parse_bindings(raw: str | Mapping[str, Any] | None) -> dict[str, EngineBinding]:
     """`SCENARIO_ENGINES` 값을 검증해 바인딩으로 바꾼다. 잘못되면 ValueError (기동 실패)."""
@@ -86,8 +105,11 @@ class LLMClientProvider:
         bindings: Mapping[str, EngineBinding] | None = None,
         *,
         factory: ClientFactory | None = None,
+        origin: str = ORIGIN_CONFIG,
     ) -> None:
+        """origin: 바인딩이 어디서 왔는지 (`explain()` 표시용. 동작에는 영향 없음)."""
         self._settings = settings
+        self._origin = origin
         self._bindings = dict(bindings or {})
         for key, binding in self._bindings.items():
             if settings.is_engine_blocked(binding.engine):
@@ -100,7 +122,18 @@ class LLMClientProvider:
 
     @classmethod
     def from_settings(cls, settings: Any) -> LLMClientProvider:
-        return cls(settings, parse_bindings(getattr(settings, "scenario_engines", None)))
+        # pydantic은 환경 변수·.env로 받은 필드를 model_fields_set에 넣는다 → 표 대신 .env 값을 쓰는 중
+        from_env = "scenario_engines" in getattr(settings, "model_fields_set", ())
+        provider = cls(
+            settings,
+            parse_bindings(getattr(settings, "scenario_engines", None)),
+            origin=ORIGIN_ENV if from_env else ORIGIN_CONFIG,
+        )
+        if from_env:
+            logger.warning("SCENARIO_ENGINES 환경 변수(.env)가 있어 config.py의 SCENARIO_MODELS 표를 쓰지 않습니다.")
+        for row in provider.explain():
+            logger.info("시나리오 모델 %-7s → %s %s (%s)", row.key, row.engine, row.model_id or "", row.origin)
+        return provider
 
     def binding_for(self, key: str) -> EngineBinding:
         if key not in VALID_KEYS or key == DEFAULT_KEY:
@@ -132,6 +165,20 @@ class LLMClientProvider:
             for key in (ROUTER_KEY, *SCENARIO_KEYS)
             for b in (self.binding_for(key),)
         }
+
+    def explain(self) -> list[ModelChoice]:
+        """router·A~F 각각 무엇을 쓰고 어디서 왔는지 (사람이 보는 표. 모델을 읽지 않는다)."""
+        rows: list[ModelChoice] = []
+        for key in (ROUTER_KEY, *SCENARIO_KEYS):
+            binding = self.binding_for(key)
+            if key in self._bindings:
+                origin = self._origin
+            elif DEFAULT_KEY in self._bindings:
+                origin = f"{self._origin} [default]"
+            else:
+                origin = ORIGIN_DEFAULT_ENGINE
+            rows.append(ModelChoice(key, binding.engine, binding.model_id, origin))
+        return rows
 
     def _default_factory(self, engine: str, model_id: str | None) -> LLMClient:
         # 엔진을 고르는 유일한 지점은 llm_factory다 (폐쇄망 차단·설정 검사도 거기서 한다).

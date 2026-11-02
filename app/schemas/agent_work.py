@@ -14,7 +14,7 @@ runStatus 값은 agent_runs.status 코드(WAITING_INPUT, DONE)와 같다.
 """
 from __future__ import annotations
 from typing import Any, Literal, Annotated
-from pydantic import Field, BaseModel, Field
+from pydantic import BaseModel, Field
 from .base_schemas import CamelModel
 from .forms import (
     Citation,
@@ -40,7 +40,7 @@ class WorkSlots(CamelModel):
     nearby_materials_none: bool = Field(default=False, description="'주변 물질 없음'이라고 답했다")
     material_locations: dict[str, str] = Field(default_factory=dict, description="물질 → 보관 위치")
     headcount: int | None = Field(default=None, ge=1, le=500)
-    workDate: str | None = None
+    work_date: str | None = None
     start_time: str | None = None
     end_time: str | None = None
     equipment: list[str] = Field(default_factory=list)
@@ -52,7 +52,9 @@ class WorkSlots(CamelModel):
     asked_keys: list[str] = Field(default_factory=list, description="직전에 되물은 항목 key. 다음 발화의 짧은 답('3', '없음')을 읽는 데 쓴다")
 
 
-class WorkRegisterRequest(BaseModel):
+class WorkRegisterRequest(CamelModel):
+    """개발 확인용(/api/v1/test/work-register)과 Spring 실행 요청의 공통 모양. id는 여기서는 선택이다."""
+
     message: str = Field(min_length=1, max_length=2000, description="이번 작업책임자 발화")
     slots: WorkSlots | None = Field(default=None, description="이전 응답의 slots. 첫 요청이면 비운다")
     mode: Literal["VERIFY", "GUIDE"] = Field(default="VERIFY", description="sites.mode. GUIDE면 쉬운 말 안내를 붙인다")
@@ -60,13 +62,25 @@ class WorkRegisterRequest(BaseModel):
     site_id: PositiveId | None = None
     permit_id: PositiveId | None = None
 
-class MissingField(BaseModel):
+
+class AgentWorkRegisterRequest(WorkRegisterRequest):
+    """Spring 실행 요청 (POST /api/v1/agent/work-register).
+
+    runId·siteId는 Spring이 정해 넘긴다 (LLM이 정하지 않는다). 빠지면 422.
+    이 값은 check_rules 인자와 steps의 runId·siteId에 그대로 들어간다.
+    """
+
+    run_id: PositiveId
+    site_id: PositiveId
+
+
+class MissingField(CamelModel):
     key: str
     label: str
     question: str
 
 
-class AskBack(BaseModel):
+class AskBack(CamelModel):
     message: str
     missing_fields: list[MissingField]
 
@@ -183,8 +197,9 @@ class AgentStepDto(CamelModel):
     output: dict[str, Any]
     elapsed_ms: int
     error_code: str | None = None
-    run_id: PositiveId
-    site_id: PositiveId
+    # Spring이 요청에 실어 보낸 값을 그대로 채운다. 개발 확인용 경로(/api/v1/test)는 id가 없어 null.
+    run_id: PositiveId | None = None
+    site_id: PositiveId | None = None
 
 class LlmSources(BaseModel):
     plan: Literal["llm", "fallback"] | None = None
