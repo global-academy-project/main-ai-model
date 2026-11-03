@@ -42,7 +42,7 @@ COPY app ./app
 
 EXPOSE 60110
 
-CMD ["uvicorn", "app.rag.embedding_api:create_app", "--factory", "--host", "0.0.0.0", "--port", "60110"]
+CMD ["uvicorn", "app.embedding.embedding_api:create_app", "--factory", "--host", "0.0.0.0", "--port", "60110"]
 
 #-------------------------[Multi-stage build Ingest image]---------------------------------------
 FROM base AS ingest-dependencies
