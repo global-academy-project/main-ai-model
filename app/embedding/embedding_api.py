@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from secrets import compare_digest
@@ -8,7 +9,7 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from .config import EmbeddingServerSettings
@@ -34,10 +35,28 @@ class EmbeddingRequest(BaseModel):
         return value
 
 
+class SparseEmbedding(BaseModel):
+    indices: list[int]
+    values: list[float]
+
+    @model_validator(mode="after")
+    def validate_sparse_vector(self) -> SparseEmbedding:
+        if (
+            len(self.indices) != len(self.values)
+            or not self.indices
+            or self.indices != sorted(set(self.indices))
+            or any(index < 0 for index in self.indices)
+            or any(not math.isfinite(value) or value <= 0 for value in self.values)
+        ):
+            raise ValueError("sparse_embedding 형식이 올바르지 않습니다.")
+        return self
+
+
 class EmbeddingItem(BaseModel):
     object: Literal["embedding"] = "embedding"
     index: int
     embedding: list[float]
+    sparse_embedding: SparseEmbedding
 
 
 class TokenUsage(BaseModel):
@@ -110,7 +129,7 @@ def create_app(
             raise HTTPException(status_code=503, detail="임베딩 모델이 준비되지 않았습니다.")
         texts = [body.input] if isinstance(body.input, str) else body.input
         try:
-            vectors, token_count = encoder.encode(texts)
+            embeddings, token_count = encoder.encode(texts)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -119,8 +138,15 @@ def create_app(
         return EmbeddingResponse(
             model=settings.embedding_model,
             data=[
-                EmbeddingItem(index=index, embedding=vector)
-                for index, vector in enumerate(vectors)
+                EmbeddingItem(
+                    index=index,
+                    embedding=vector.dense,
+                    sparse_embedding=SparseEmbedding(
+                        indices=vector.sparse.indices,
+                        values=vector.sparse.values,
+                    ),
+                )
+                for index, vector in enumerate(embeddings)
             ],
             usage=TokenUsage(prompt_tokens=token_count, total_tokens=token_count),
         )
