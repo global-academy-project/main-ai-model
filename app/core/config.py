@@ -20,6 +20,31 @@ EXTERNAL_ENGINES: frozenset[str] = frozenset({"OPENAI"})
 _SCENARIO_KEYS = frozenset({"router", "default", "A", "B", "C", "D", "E", "F"})
 _BINDING_FIELDS = frozenset({"engine", "model_id"})
 
+# ── 시나리오별 LLM 모델 선택표 ──────────────────────────────────────────────
+# 각 담당자는 자기 시나리오 줄만 고친다. 고친 뒤 서버를 다시 띄우면 적용된다.
+#
+#   engine   : "FAKE"           가짜 응답 (모델 없음, 개발·테스트용)
+#              "CATEGORIZATOR"  transformers 로컬 모델 (처음 쓸 때 읽는다)
+#              "OPENAI"         (아직 미구현)
+#   model_id : CATEGORIZATOR일 때만. 허깅페이스 이름(예: "Qwen/Qwen3-0.6B") 또는 로컬 폴더 경로
+#
+# - 줄이 없거나 주석이면 "default" 줄을 따른다.
+# - 여러 시나리오가 같은 모델을 고르면 메모리에는 한 번만 올라간다.
+# - 폐쇄망(NETWORK_ENV=CLOSED)에서는 미리 받아 둔 모델만 쓸 수 있다.
+# - 실제로 적용된 값 확인: python scripts/show_scenario_models.py
+# - .env 에 SCENARIO_ENGINES 가 있으면 이 표 **전체 대신** 그것을 쓴다. 평소에는 .env 에 두지 않는다.
+SCENARIO_MODELS: dict[str, dict[str, str]] = {
+    # 담당 · 시나리오
+    "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # 아래에서 고르지 않은 것 전부
+    "router": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # B · 시나리오 분류 (채팅 접수)
+    "A": {"engine": "FAKE"},  # B · 작업 등록 → 되묻기 → 서류 초안
+    # "B": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # C · 밀폐공간 작업 → 기준 미달 차단
+    # "C": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
+    # "D": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # D · 마감 현황·TBM·안전일지
+    # "E": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # D · 감사 대응 기록 질의
+    # "F": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # B · 소규모 사업장 안내
+}
+
 class Settings(BaseSettings):
     """환경 변수 기반 애플리케이션 설정.
 
@@ -54,10 +79,9 @@ class Settings(BaseSettings):
     internal_api_base_url: str | None = None
     internal_api_token: SecretStr | None = None
 
+    # 시나리오별 엔진·모델. 기본값은 위 SCENARIO_MODELS 표다 (복사본을 써서 표 자체는 바뀌지 않는다).
     scenario_engines: dict[str, dict[str, str]] = Field(
-        default_factory=lambda: {
-            "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},
-        }
+        default_factory=lambda: {key: dict(binding) for key, binding in SCENARIO_MODELS.items()}
     )
 
     # A의 검색 함수 위치 '모듈경로:함수이름' (예: app.rag.tool_backend:build_search_backend).
@@ -110,7 +134,7 @@ class Settings(BaseSettings):
                 return f"SCENARIO_ENGINES['{key}']: model_id는 CATEGORIZATOR 엔진만 받습니다."
             if not model_id.strip():
                 return f"SCENARIO_ENGINES['{key}']의 model_id가 비어 있습니다."
-        elif engine == "CATEGORIZATOR" and not self.categorizator_model_id:
+        elif engine == "CATEGORIZATOR" and not getattr(self, "categorizator_model_id", None):
             return f"SCENARIO_ENGINES['{key}']: model_id 또는 CATEGORIZATOR_MODEL_ID가 필요합니다."
         return self.engine_problem(engine)  # 막힌 엔진, 설정 문제는 기존 규칙 그대로
     
