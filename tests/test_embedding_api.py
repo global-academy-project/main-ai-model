@@ -46,15 +46,20 @@ def encoder(tmp_path_factory):
 
 
 def test_encoder_normalizes_cls_and_counts_non_padding_tokens(encoder):
-    vectors, count = encoder.encode(["fire", "fire safe"])
+    embeddings, count = encoder.encode(["fire", "fire safe"])
     tokens = encoder.tokenizer(["fire", "fire safe"], padding=True, return_tensors="pt")
     with torch.inference_mode():
         cls = encoder.model(**tokens).last_hidden_state[:, 0]
         expected = torch.nn.functional.normalize(cls, p=2, dim=1)
-    assert torch.allclose(torch.tensor(vectors), expected)
+    assert torch.allclose(torch.tensor([item.dense for item in embeddings]), expected)
     assert count == 7
-    assert all(len(vector) == 8 for vector in vectors)
-    assert torch.allclose(torch.tensor(vectors).norm(dim=1), torch.ones(2))
+    assert all(len(item.dense) == 8 for item in embeddings)
+    assert torch.allclose(
+        torch.tensor([item.dense for item in embeddings]).norm(dim=1), torch.ones(2),
+    )
+    assert embeddings[0].sparse.indices == [4]
+    assert embeddings[1].sparse.indices == [4, 5]
+    assert embeddings[1].sparse.values == [1.0, 1.0]
     assert not encoder.model.training
 
 
@@ -112,6 +117,9 @@ def test_api_loads_once_and_supports_single_and_batch(encoder):
         assert body["data"][0]["object"] == "embedding"
         assert body["data"][0]["index"] == 0
         assert len(body["data"][0]["embedding"]) == 8
+        assert body["data"][0]["sparse_embedding"] == {
+            "indices": [4], "values": [1.0],
+        }
         assert body["usage"] == {"prompt_tokens": 3, "total_tokens": 3}
         batch = client.post("/v1/embeddings", json={
             "model": "BAAI/bge-m3", "input": ["fire", "safe"],
@@ -207,6 +215,8 @@ def test_existing_search_client_can_read_api_response(encoder, monkeypatch):
             embedding_model="BAAI/bge-m3", embedding_dim=8, timeout_seconds=15,
             embedding_api_key=None, qdrant_api_key=None,
         )
-        vector = embed_text(settings, "fire")
-        assert len(vector) == 8
-        assert sum(value * value for value in vector) == pytest.approx(1.0)
+        embedding = embed_text(settings, "fire")
+        assert len(embedding.dense) == 8
+        assert sum(value * value for value in embedding.dense) == pytest.approx(1.0)
+        assert embedding.sparse.indices == [4]
+        assert embedding.sparse.values == [1.0]

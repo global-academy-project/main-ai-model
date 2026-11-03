@@ -151,7 +151,11 @@ def test_registered_backend_routes_and_preserves_contract(monkeypatch):
         body = json.loads(request.data)
         calls.append((request.full_url, body))
         if request.full_url == "http://embedding/v1/embeddings":
-            result = {"data": [{"embedding": [0.1, 0.2]}]}
+            result = {"data": [{
+                "index": 0,
+                "embedding": [0.1, 0.2],
+                "sparse_embedding": {"indices": [4], "values": [1.0]},
+            }]}
         else:
             is_guide = "/kb_guides/" in request.full_url
             result = {"result": {"points": [{
@@ -181,9 +185,15 @@ def test_registered_backend_routes_and_preserves_contract(monkeypatch):
     assert output["hits"][0]["source"] == "Safety (Section 1)"
     assert "/kb_accidents/" in calls[1][0]
     assert calls[0][1]["input"] == "fire"
-    assert calls[1][1]["limit"] == 50
-    assert {"key": "flagged", "match": {"value": False}} in calls[1][1]["filter"]["must"]
-    assert {"key": "site_id", "match": {"any": [0]}} in calls[1][1]["filter"]["must"]
+    query = calls[1][1]
+    assert query["query"] == {"fusion": "rrf"}
+    assert query["limit"] == 50
+    assert len(query["prefetch"]) == 2
+    assert query["prefetch"][0]["using"] == "dense"
+    assert query["prefetch"][1]["using"] == "sparse"
+    assert query["prefetch"][0]["limit"] == 50
+    assert {"key": "flagged", "match": {"value": False}} in query["prefetch"][0]["filter"]["must"]
+    assert {"key": "site_id", "match": {"any": [0]}} in query["prefetch"][1]["filter"]["must"]
 
     assert registry.call(
         "search_guides", {"query": "fire", "min_score": 0.0},
@@ -216,7 +226,11 @@ def test_cli_loads_backend_and_checks_both_tools(monkeypatch, capsys):
     def respond(request, timeout):
         calls.append(request.full_url)
         if request.full_url == "http://embedding/v1/embeddings":
-            result = {"data": [{"embedding": [0.1, 0.2]}]}
+            result = {"data": [{
+                "index": 0,
+                "embedding": [0.1, 0.2],
+                "sparse_embedding": {"indices": [4], "values": [1.0]},
+            }]}
         else:
             result = {"result": {"points": []}}
         return BytesIO(json.dumps(result).encode())
