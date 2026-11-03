@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections import Counter
 from threading import Lock
 
 import torch
 from transformers import AutoModel, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
 
 from .config import EmbeddingServerSettings
+from .types import HybridEmbedding, SparseVector
 
 
 class BgeM3Encoder:
@@ -20,7 +22,7 @@ class BgeM3Encoder:
         self.model = model
         self._lock = Lock()
 
-    def encode(self, texts: list[str]) -> tuple[list[list[float]], int]:
+    def encode(self, texts: list[str]) -> tuple[list[HybridEmbedding], int]:
         if not 1 <= len(texts) <= self.settings.embedding_max_batch_size:
             raise ValueError("임베딩 요청의 문장 개수가 허용 범위를 벗어났습니다.")
         with self._lock, torch.inference_mode():
@@ -43,7 +45,35 @@ class BgeM3Encoder:
                 or (norms == 0).any().item()
             ):
                 raise RuntimeError("임베딩 모델이 유효하지 않은 벡터를 반환했습니다.")
-            return (vectors / norms).cpu().tolist(), token_count
+            dense_vectors = (vectors / norms).cpu().tolist()
+            special_tokens = set(self.tokenizer.all_special_ids)
+            if self.tokenizer.unk_token_id is not None:
+                special_tokens.discard(self.tokenizer.unk_token_id)
+            sparse_vectors: list[SparseVector] = []
+            for input_ids, attention_mask in zip(
+                tokens["input_ids"].tolist(), tokens["attention_mask"].tolist(), strict=True,
+            ):
+                term_counts = Counter(
+                    token_id
+                    for token_id, attended in zip(input_ids, attention_mask, strict=True)
+                    if attended and token_id not in special_tokens
+                )
+                if not term_counts:
+                    raise ValueError("입력에 임베딩할 토큰이 없습니다.")
+                indices = sorted(term_counts)
+                sparse_vectors.append(
+                    SparseVector(
+                        indices=indices,
+                        values=[float(term_counts[index]) for index in indices],
+                    )
+                )
+            return (
+                [
+                    HybridEmbedding(dense=dense, sparse=sparse)
+                    for dense, sparse in zip(dense_vectors, sparse_vectors, strict=True)
+                ],
+                token_count,
+            )
 
 
 def load_encoder(settings: EmbeddingServerSettings) -> BgeM3Encoder:
