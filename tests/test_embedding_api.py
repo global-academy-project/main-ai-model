@@ -8,11 +8,11 @@ from fastapi.testclient import TestClient
 from tokenizers import Tokenizer, models, pre_tokenizers, processors
 from transformers import PreTrainedTokenizerFast, XLMRobertaConfig, XLMRobertaModel
 
-from app.rag import http
-from app.rag.config import EmbeddingServerSettings, RagSettings
-from app.rag.embedding import embed_text
-from app.rag.embedding_api import create_app
-from app.rag.embedding_model import load_encoder
+from app.embedding import http
+from app.embedding.config import EmbeddingServerSettings, RagSettings
+from app.embedding.embedding import embed_text
+from app.embedding.embedding_api import create_app
+from app.embedding.embedding_model import load_encoder
 
 
 @pytest.fixture(scope="module")

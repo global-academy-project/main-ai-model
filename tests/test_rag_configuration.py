@@ -6,8 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.exceptions import ToolError
-from app.rag import http
-from app.rag.config import RagEnvironmentSettings, RagSettings
+from app.embedding import http
+from app.embedding.config import RagEnvironmentSettings, RagSettings
 from app.tools.adapters.rag_tools import register_rag_tools
 from app.tools.rag_loader import load_search_backend
 from app.tools.tool_registry import ToolRegistry
