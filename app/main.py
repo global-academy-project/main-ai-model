@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from app.api.v1.agent.rule_input_extract import router as rule_input_extract_router
 from app.api import health_router, chat_router
 from app.core import get_settings
 from app.exceptions import BusinessError, LLMError
@@ -28,3 +29,4 @@ app = create_app()
 
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(rule_input_extract_router)
