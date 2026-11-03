@@ -82,8 +82,6 @@ class RagSettings:
         )
 
 
-class ServerSettings():
-
 class EmbeddingServerSettings(RagEnvironmentSettings):
     """Model-serving options; no embedding endpoint or Qdrant access is needed."""
 
