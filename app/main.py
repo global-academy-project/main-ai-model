@@ -1,8 +1,9 @@
 from fastapi import FastAPI
-from fastapi.exceptions import RequestValidationError
 from app.api import health_router
-from app.api.v1.agent.agent_run import router as agent_run_router
 from app.core import get_settings
+from app.api.v1.agent.rule_input_extract import router as rule_input_extract_router
+from fastapi.exceptions import RequestValidationError
+from app.api.v1.agent.agent_run import router as agent_run_router
 from app.exceptions import AgentRunError, BusinessError, LLMError
 from app.handlers import (
     business_error_handler,
@@ -37,6 +38,7 @@ def create_app() -> FastAPI:
     # 라우터도 create_app() 안에서 붙인다 (테스트의 TestClient(create_app())에도 경로가 있게)
     app.include_router(health_router)
     app.include_router(agent_run_router)
+    app.include_router(rule_input_extract_router)
     return app
 
 app = create_app()
