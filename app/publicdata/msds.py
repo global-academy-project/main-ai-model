@@ -36,7 +36,8 @@ MSDS_PARAMETERS = {
 
 class KoshaMsdsClient:
     def __init__(self, service_key: str, *, timeout_seconds: float = 10.0) -> None:
-        if not service_key.strip():
+        service_key = service_key.strip()
+        if not service_key:
             raise ValueError("공공데이터 API 키가 필요합니다.")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds는 양수여야 합니다.")
@@ -171,7 +172,7 @@ class KoshaMsdsClient:
 
 
 def register_publicdata_msds(registry: ToolRegistry) -> None:
-    service_key = os.getenv("KOSHA_MSDS_SERVICE_KEY")
+    service_key = os.getenv("KOSHA_MSDS_SERVICE_KEY", "").strip()
     if not service_key:
         return
 

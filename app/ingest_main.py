@@ -10,9 +10,9 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.embedding.config import RagSettings
-from app.embedding.errors import RagBackendError
-from app.embedding.filters import COLLECTIONS
+from app.rag.config import RagSettings
+from app.rag.errors import RagBackendError
+from app.rag.filters import COLLECTIONS
 from app.rag.indexing import IndexableChunk, index_chunks
 
 app = FastAPI(title="KB Ingest API")
@@ -76,7 +76,7 @@ class IngestRequest(BaseModel):
 def authenticate(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
 ) -> None:
-    token = os.getenv("KB_INGEST_API_TOKEN")
+    token = os.getenv("KB_INGEST_API_TOKEN", "").strip()
     if not token:
         raise HTTPException(status_code=503, detail="적재 API 인증이 설정되지 않았습니다.")
     if credentials is None or not compare_digest(credentials.credentials, token):
@@ -94,7 +94,7 @@ def ready():
 
 @app.post("/ingest/chunks")
 def ingest(body: IngestRequest, _: Annotated[None, Depends(authenticate)]) -> dict[str, int]:
-    write_api_key = os.getenv("QDRANT_API_KEY")
+    write_api_key = os.getenv("QDRANT_API_KEY", "").strip()
     if not write_api_key:
         raise HTTPException(status_code=503, detail="Qdrant 쓰기 설정이 없습니다.")
     try:

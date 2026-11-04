@@ -7,7 +7,8 @@ from urllib.parse import quote
 
 from .config import RagSettings
 from .errors import RagBackendError
-from .http import post_json
+from .filters import COLLECTIONS
+from .http import post_json, put_json
 
 _PAYLOAD_FIELDS = [
     "kb_source_id",
@@ -18,6 +19,49 @@ _PAYLOAD_FIELDS = [
     "url",
     "text",
 ]
+
+
+def make_point(
+    point_id: str | int,
+    embedding: list[float],
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "id": point_id,
+        "vector": {"dense": embedding},
+        "payload": dict(payload),
+    }
+
+
+def upsert_points(
+    settings: RagSettings,
+    collection: str,
+    points: Sequence[Mapping[str, Any]],
+    *,
+    write_api_key: str,
+) -> None:
+    if collection not in COLLECTIONS:
+        raise ValueError("collection은 kb_accidents 또는 kb_guides여야 합니다.")
+    if not points:
+        return
+    if not write_api_key.strip():
+        raise ValueError("Qdrant 쓰기 키가 필요합니다.")
+
+    url = f"{settings.qdrant_url}/collections/{quote(collection, safe='')}/points?wait=true"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "api-key": write_api_key,
+    }
+    response = put_json(
+        url,
+        {"points": list(points)},
+        headers,
+        settings.timeout_seconds,
+        "Qdrant 적재",
+    )
+    if response.get("status") != "ok":
+        raise RagBackendError("Qdrant 적재가 완료되지 않았습니다.")
 
 
 def query_points(
