@@ -49,7 +49,7 @@ import uuid
 
 from qdrant_client import QdrantClient, models
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant-server:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 
