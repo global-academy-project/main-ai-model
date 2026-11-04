@@ -31,17 +31,27 @@ class RagEnvironmentSettings(BaseSettings):
     def validate_url(cls, value: str | None) -> str | None:
         if value is None:
             return None
+        value = value.strip()
         parsed = urlsplit(value)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("RAG URL은 http 또는 https URL이어야 합니다.")
         return value.rstrip("/")
+
+    @field_validator("embedding_api_key", "qdrant_read_only_api_key", mode="before")
+    @classmethod
+    def strip_secret_whitespace(cls, value: SecretStr | str | None) -> SecretStr | str | None:
+        if isinstance(value, SecretStr):
+            return value.get_secret_value().strip()
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
     @field_validator("embedding_model")
     @classmethod
     def validate_embedding_model(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("EMBEDDING_MODEL은 비어 있을 수 없습니다.")
-        return value
+        return value.strip()
 
 
 @dataclass(frozen=True)

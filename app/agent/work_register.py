@@ -12,9 +12,16 @@
 도구는 이름으로만 부르므로 A·C의 mock을 실제 모듈로 바꿔도 이 파일은 그대로다.
 모든 도구 호출과 단계는 steps(agent_steps 기록용)에 남는다.
 
+실행 값 (Spring이 정해 요청에 실어 보낸다. LLM이 정하지 않는다)
+  - run_id · site_id: 모든 steps와 check_rules 인자에 그대로 넣는다.
+  - permit_id: 허가 종류가 하나일 때만 check_rules에 넣는다 (넣으면 Spring이 그 허가서의 판정으로 저장한다).
+  - 개발 확인용 경로(/api/v1/test)는 id가 없다. 이때는 키를 넣지 않는다.
+
 실패 정책
-  - LLMError: 그대로 올린다 (HTTP 핸들러 또는 루프 러너가 to_error_info로 처리).
-  - classify_work · fill_form의 ToolError: B 자신의 도구라 그대로 올린다.
+  - LLMError · ToolError로 실행이 멈추면 AgentRunError(원인, 그때까지의 steps)로 감싸 올린다.
+    Spring이 실패한 실행의 steps도 agent_steps로 저장할 수 있게 (계획서 7-2 "실패" 행).
+    그 밖의 예외(프로그래밍 오류)는 감싸지 않는다.
+  - classify_work · fill_form의 ToolError: B 자신의 도구라 실행을 멈춘다.
   - 검색이 모두 실패: EvidenceCollector가 ToolError(EVIDENCE_SEARCH_FAILED)를 올린다.
   - lookup_msds · check_rules의 ToolError: 실행은 계속하고 verification에 남긴다.
     규칙 판정을 못 하면 승인 요청을 막는다 (모름을 통과로 바꾸지 않는다).
@@ -54,7 +61,7 @@ from .slots import ask_message, full_text, merge_slots, missing_fields
 from .text_rules import sentences
 from ..tools.tool_contract import ToolInvoker
 from ..tools.tool_registry import RecordingToolInvoker, ToolCallRecord, to_plain
-from app.exceptions import ToolError
+from app.exceptions import AgentRunError, LLMError, ToolError
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +70,15 @@ SNIPPET_CHARS = 300
 
 
 class _StepLog:
-    def __init__(self) -> None:
+    def __init__(self, *, run_id: int | None = None, site_id: int | None = None) -> None:
         self.steps: list[AgentStepDto] = []
+        self._run_id = run_id
+        self._site_id = site_id
 
     def _add(self, **kwargs: Any) -> None:
-        self.steps.append(AgentStepDto(seq=len(self.steps) + 1, **kwargs))
+        self.steps.append(
+            AgentStepDto(seq=len(self.steps) + 1, run_id=self._run_id, site_id=self._site_id, **kwargs)
+        )
 
     def tool(self, record: ToolCallRecord) -> None:
         self._add(kind="TOOL", name=record.tool_name, tool_name=record.tool_name, status="OK" if record.ok else "ERROR",
@@ -101,9 +112,14 @@ class WorkRegisterAgent:
         self._judge_max_tokens = judge_max_tokens
 
     def run(self, request: WorkRegisterRequest) -> WorkRegisterResult:
-        log = _StepLog()
+        log = _StepLog(run_id=request.run_id, site_id=request.site_id)
         tools = RecordingToolInvoker(self._tools, log.tool)
+        try:
+            return self._run(request, log, tools)
+        except (LLMError, ToolError) as exc:
+            raise AgentRunError(exc, steps=log.steps) from exc
 
+    def _run(self, request: WorkRegisterRequest, log: _StepLog, tools: ToolInvoker) -> WorkRegisterResult:
         # ① 되묻기
         slots = merge_slots(request.slots, request.message)
         text = full_text(slots)[-MAX_CONTEXT_CHARS:]
@@ -157,7 +173,9 @@ class WorkRegisterAgent:
                   {"source": judgment_source, "hazards": [h.hazard for h in hazards]}, started)
 
         # ⑤ 규칙 판정
-        rule_check, raw_by_permit = self._check_rules(tools, classification, slots, issues)
+        rule_check, raw_by_permit = self._check_rules(
+            tools, classification, slots, issues, _run_arguments(request, classification.required_permits)
+        )
 
         # ⑥ 자기검증
         started = time.perf_counter()
@@ -219,8 +237,13 @@ class WorkRegisterAgent:
 
     @staticmethod
     def _check_rules(
-        tools: ToolInvoker, classification: Classification, slots: WorkSlots, issues: list[VerificationIssue]
+        tools: ToolInvoker,
+        classification: Classification,
+        slots: WorkSlots,
+        issues: list[VerificationIssue],
+        run_arguments: dict[str, int] | None = None,
     ) -> tuple[RuleCheckDto | None, dict[str, list[dict[str, Any]]]]:
+        """run_arguments: 코드가 채우는 실행 값 (`_run_arguments`). LLM이 만든 값이 아니다."""
         if not classification.required_permits:
             return None, {}
         evaluations: list[RuleEvaluationDto] = []
@@ -235,6 +258,7 @@ class WorkRegisterAgent:
                 "assignments": {"FIRE_WATCHER": slots.fire_watcher, "ATTENDANT": slots.attendant},
                 "location": slots.location,
                 "period": {"start": slots.start_time, "end": slots.end_time},
+                **(run_arguments or {}),
             }
             try:
                 raw = to_plain(tools.call("check_rules", arguments))
@@ -254,6 +278,23 @@ class WorkRegisterAgent:
     @staticmethod
     def _fill(tools: ToolInvoker, form_type: str, data: dict[str, Any]) -> dict[str, Any]:
         return to_plain(tools.call("fill_form", {"form_type": form_type, "data": data}))["data"]
+
+
+def _run_arguments(request: WorkRegisterRequest, permit_types: Sequence[str]) -> dict[str, int]:
+    """check_rules에 덧붙일 실행 값. 요청에 없는 값은 키를 넣지 않는다.
+
+    site_id가 없으면 실제 check_rules가 TOOL_INPUT_INVALID를 내고, 에이전트는 판정 실패로 기록해
+    승인 요청을 막는다 (안전하게 실패). permit_id는 허가 종류가 하나일 때만 넣는다: 여럿이면 어느
+    허가서의 판정인지 정할 수 없어 저장 없이 미리 확인만 한다.
+    """
+    arguments: dict[str, int] = {}
+    if request.site_id is not None:
+        arguments["site_id"] = request.site_id
+    if request.run_id is not None:
+        arguments["run_id"] = request.run_id
+    if request.permit_id is not None and len(set(permit_types)) == 1:
+        arguments["permit_id"] = request.permit_id
+    return arguments
 
 
 def _rule_summary(slots: WorkSlots) -> str:

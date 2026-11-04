@@ -85,16 +85,12 @@ def make_qdrant_conditions(
 
 
 def _read_site_ids(value: Any) -> list[int]:
-    if value is None:
-        return [0]
-    values = value if isinstance(value, (list, tuple, set)) else [value]
-    site_ids = [0]
-    for site_id in values:
-        if isinstance(site_id, bool) or not isinstance(site_id, int) or site_id <= 0:
-            raise ValueError("site_id 필터는 양의 정수여야 합니다.")
-        if site_id not in site_ids:
-            site_ids.append(site_id)
-    return site_ids
+    if value is not None:
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        for site_id in values:
+            if isinstance(site_id, bool) or not isinstance(site_id, int) or site_id <= 0:
+                raise ValueError("site_id 필터는 양의 정수여야 합니다.")
+    return [0]
 
 
 def _filter_values(value: Any, name: str) -> list[Any]:

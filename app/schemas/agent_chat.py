@@ -9,6 +9,9 @@ FastAPI는 대화 상태를 저장하지 않는다. 되묻기 응답이 "다음 
                           (분류 모델 없이 같은 처리기로 이어 간다)
 
 전용 화면은 `scenario`를 직접 지정한다 (분류하지 않는다). 엔진·모델은 요청으로 정하지 않는다 (서버 설정 SCENARIO_ENGINES).
+
+`mode`(현장 모드)는 필수다. 작업 등록이 A인지 F인지를 이 값으로 정하기 때문이다 (VERIFY → A, GUIDE → F,
+app/agent/site_mode.py). 기본값을 두면 mode를 빠뜨린 GUIDE 현장이 조용히 A로 처리된다.
 """
 
 from __future__ import annotations
@@ -33,7 +36,9 @@ class AgentChatRequest(CamelModel):
         default=None, max_length=MAX_MESSAGE_CHARS, description="askKind=SCENARIO 응답에서 받은 값을 그대로"
     )
     slots: WorkSlots | None = Field(default=None, description="이전 응답 result.slots. 첫 요청이면 비운다")
-    mode: Literal["VERIFY", "GUIDE"] = Field(default="VERIFY", description="sites.mode. F는 항상 GUIDE로 처리된다")
+    mode: Literal["VERIFY", "GUIDE"] = Field(
+        description="sites.mode (Spring의 AgentRun.mode). 작업 등록은 VERIFY → A, GUIDE → F로 정해진다"
+    )
 
     @model_validator(mode="after")
     def _scenario_or_in_progress(self) -> AgentChatRequest:
