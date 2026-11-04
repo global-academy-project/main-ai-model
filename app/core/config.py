@@ -14,18 +14,22 @@ rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
 """
 
 # 사용 가능한 엔진 이름. 엔진을 추가할 때는 external 분류(app.core.engines)도 함께 갱신한다.
-Engine = Literal["FAKE", "OPENAI", "CATEGORIZATOR"]
+Engine = Literal["FAKE", "CATEGORIZATOR", "WORK_REGISTER", "CONFINED_SPACE_GATE", "NEAR_MISS_WARNING", "DAILY_SAFETY_LOG", "AUDIT_QUERY", "SMALL_SITE_GUIDE"]
 EXTERNAL_ENGINES: frozenset[str] = frozenset({"OPENAI"})
 
 _SCENARIO_KEYS = frozenset({"router", "default", "A", "B", "C", "D", "E", "F"})
 _BINDING_FIELDS = frozenset({"engine", "model_id"})
+
+# SCENARIO_MODELS 표 아래, class Settings 위
+# 통합 채팅창에서 분류할 시나리오 (글자, 쉼표로). A와 F는 함께 넣는다. D·E는 처리기를 붙일 때 자기 글자를 더한다.
+CHAT_SCENARIOS = "A,F"
 
 # ── 시나리오별 LLM 모델 선택표 ──────────────────────────────────────────────
 # 각 담당자는 자기 시나리오 줄만 고친다. 고친 뒤 서버를 다시 띄우면 적용된다.
 #
 #   engine   : "FAKE"           가짜 응답 (모델 없음, 개발·테스트용)
 #              "CATEGORIZATOR"  transformers 로컬 모델 (처음 쓸 때 읽는다)
-#              "OPENAI"         (아직 미구현)
+
 #   model_id : CATEGORIZATOR일 때만. 허깅페이스 이름(예: "Qwen/Qwen3-0.6B") 또는 로컬 폴더 경로
 #
 # - 줄이 없거나 주석이면 "default" 줄을 따른다.
@@ -37,12 +41,12 @@ SCENARIO_MODELS: dict[str, dict[str, str]] = {
     # 담당 · 시나리오
     "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # 아래에서 고르지 않은 것 전부
     "router": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # B · 시나리오 분류 (채팅 접수)
-    "A": {"engine": "FAKE"},  # B · 작업 등록 → 되묻기 → 서류 초안
-    # "B": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # C · 밀폐공간 작업 → 기준 미달 차단
-    # "C": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
-    # "D": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # D · 마감 현황·TBM·안전일지
-    # "E": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # D · 감사 대응 기록 질의
-    # "F": {"engine": "CATEGORIZATOR", "model_id": "모델 이름"},  # B · 소규모 사업장 안내
+    "A": {"engine": "WORK_REGISTER", "model_id": "Qwen/Qwen3-0.6B"},  # B · 작업 등록 → 되묻기 → 서류 초안
+    # "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-4B"},  # C · 밀폐공간 작업 → 기준 미달 차단
+    # "C": {"engine": "NEAR_MISS_WARNING", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
+    # "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-4B"},  # D · 마감 현황·TBM·안전일지
+    # "E": {"engine": "AUDIT_QUERY", "model_id": "모델 이름"},  # D · 감사 대응 기록 질의
+    # "F": {"engine": "SMALL_SITE_GUIDE", "model_id": "모델 이름"},  # B · 소규모 사업장 안내
 }
 
 class Settings(BaseSettings):
@@ -95,6 +99,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    chat_scenarios: str = CHAT_SCENARIOS
+
     @property
     def available_engines(self) -> list[str]:
         """선언된 모든 엔진 이름을 반환한다."""
@@ -130,11 +136,11 @@ class Settings(BaseSettings):
             return f"SCENARIO_ENGINES['{key}']의 엔진 '{engine}'은 지원하지 않습니다."
         model_id = binding.get("model_id")
         if model_id is not None:
-            if engine != "CATEGORIZATOR":
-                return f"SCENARIO_ENGINES['{key}']: model_id는 CATEGORIZATOR 엔진만 받습니다."
+            if engine == "FAKE":
+                return f"SCENARIO_ENGINES['{key}']: FAKE 엔진은 model_id를 가질 수 없습니다."
             if not model_id.strip():
                 return f"SCENARIO_ENGINES['{key}']의 model_id가 비어 있습니다."
-        elif engine == "CATEGORIZATOR" and not getattr(self, "categorizator_model_id", None):
+        elif engine != "FAKE" and not getattr(self, "categorizator_model_id", None):
             return f"SCENARIO_ENGINES['{key}']: model_id 또는 CATEGORIZATOR_MODEL_ID가 필요합니다."
         return self.engine_problem(engine)  # 막힌 엔진, 설정 문제는 기존 규칙 그대로
     
@@ -159,15 +165,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-    
-    # @property
-    # def selectable_engines(self) -> list[Engine]:
-    #     """현재 환경에서 실제로 선택 가능한 엔진만 반환한다."""
-    #     usable: list[Engine] = []
-    #     for name in get_args(Engine):
-    #         try:
-    #             self.check_engine(name)
-    #         except ValueError:
-    #             continue
-    #         usable.append(name)
-    #     return usable
