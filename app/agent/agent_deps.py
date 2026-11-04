@@ -15,6 +15,7 @@ from functools import lru_cache
 from typing import Annotated
 from fastapi import Depends, Request
 from app.tools.tool_registry import ToolRegistry
+from app.publicdata import register_publicdata_msds
 from ..tools.tool_setup import build_tool_registry
 from .work_register import WorkRegisterAgent
 from app.core import Settings, get_settings
@@ -24,7 +25,10 @@ from app.services.agent_work_service import WorkRegisterAgentFactory
 @lru_cache
 def get_tool_registry() -> ToolRegistry:
     # RAG_BACKEND가 있으면 검색 도구 2개가 A의 검색으로 바뀐다. 없으면 mock. 설정이 틀리면 첫 호출 때 ValueError.
-    return build_tool_registry(rag_backend=get_settings().rag_backend)
+    return build_tool_registry(
+        rag_backend=get_settings().rag_backend,
+        extra=register_publicdata_msds,
+    )
 
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
 
