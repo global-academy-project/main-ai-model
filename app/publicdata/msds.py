@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.exceptions import ToolError
+from app.rag.tags import classify_regulations
 from app.tools.tool_registry import ToolRegistry
 
 _BASE_URL = "https://apis.data.go.kr/B552468/msdschem1"
@@ -106,6 +107,7 @@ class KoshaMsdsClient:
             for item in hazard_items
             if "분류" in item.get("msdsItemNameKor", "") and _clean_text(item.get("itemDetail", ""))
         ]
+        regulations = _format_details(regulation_items)
         return {
             "query": query,
             "found": True,
@@ -114,7 +116,8 @@ class KoshaMsdsClient:
             "ghs_classes": ghs_classes,
             "hazards": hazards,
             "first_aid": "\n".join(_format_details(first_aid_items)) or None,
-            "regulations": _format_details(regulation_items),
+            "regulations": regulations,
+            "regulatory_tags": classify_regulations(regulations),
             "source": _SOURCE,
         }
 

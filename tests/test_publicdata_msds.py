@@ -2,6 +2,7 @@ from io import BytesIO
 from urllib.parse import parse_qs, urlsplit
 
 from app.publicdata.msds import KoshaMsdsClient, register_publicdata_msds
+from app.schemas.agent_work import MsdsDto
 from app.tools.tool_registry import ToolRegistry
 
 
@@ -22,8 +23,8 @@ def test_lookup_uses_list_and_analysis_sections(monkeypatch):
         <itemDetail>물로 씻으세요</itemDetail>
         </item></items></body></response>""".encode(),
         """<response><header><resultCode>00</resultCode></header><body><items><item>
-        <msdsItemNameKor>국내 규제</msdsItemNameKor>
-        <itemDetail>관리 대상</itemDetail>
+        <msdsItemNameKor>가.산업안전보건법에 의한 규제</msdsItemNameKor>
+        <itemDetail>작업환경측정대상물질|관리대상유해물질</itemDetail>
         </item></items></body></response>""".encode(),
     ]
     requests = []
@@ -45,7 +46,16 @@ def test_lookup_uses_list_and_analysis_sections(monkeypatch):
         "나.경고표지: 고인화성 증기",
     ]
     assert result["first_aid"] == "눈에 들어갔을 때: 물로 씻으세요"
-    assert result["regulations"] == ["국내 규제: 관리 대상"]
+    assert result["regulations"] == [
+        "가.산업안전보건법에 의한 규제: 작업환경측정대상물질|관리대상유해물질",
+    ]
+    assert [tag["code"] for tag in result["regulatory_tags"]] == [
+        "WORKPLACE_MEASUREMENT",
+        "CONTROLLED_HAZARDOUS_SUBSTANCE",
+    ]
+    response = MsdsDto.model_validate(result)
+    assert response.regulatory_tags[0].code == "WORKPLACE_MEASUREMENT"
+    assert response.regulatory_tags[0].evidence == result["regulatory_tags"][0]["evidence"]
     assert [urlsplit(request.full_url).path.rsplit("/", 1)[-1] for request in requests] == [
         "getChemList001",
         "getChemDetail021",
