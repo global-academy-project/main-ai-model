@@ -143,6 +143,8 @@ class MsdsDto(CamelModel):
     cas_no: str | None = None
     ghs_classes: list[str] = Field(default_factory=list)
     hazards: list[str] = Field(default_factory=list)
+    first_aid: str | None = None
+    regulations: list[str] = Field(default_factory=list)
     source: str | None = None
 
 
