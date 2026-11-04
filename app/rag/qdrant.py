@@ -5,15 +5,12 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import quote
 
-from app.embedding.config import RagSettings
-from app.embedding.errors import RagBackendError
-from app.embedding.filters import COLLECTIONS
-from app.embedding.http import post_json, put_json
-from app.embedding.types import HybridEmbedding
+from .config import RagSettings
+from .errors import RagBackendError
+from .http import post_json
 
 _PAYLOAD_FIELDS = [
     "kb_source_id",
-    "kb_chunk_id",
     "source_type",
     "site_id",
     "title",
@@ -23,65 +20,13 @@ _PAYLOAD_FIELDS = [
 ]
 
 
-def make_point(
-    point_id: str | int,
-    embedding: HybridEmbedding,
-    payload: Mapping[str, Any],
-) -> dict[str, Any]:
-    return {
-        "id": point_id,
-        "vector": {
-            "dense": embedding.dense,
-            "sparse": {
-                "indices": embedding.sparse.indices,
-                "values": embedding.sparse.values,
-            },
-        },
-        "payload": dict(payload),
-    }
-
-
-def upsert_points(
-    settings: RagSettings,
-    collection: str,
-    points: Sequence[Mapping[str, Any]],
-    *,
-    write_api_key: str,
-) -> None:
-    if collection not in COLLECTIONS:
-        raise ValueError("collection은 kb_accidents 또는 kb_guides여야 합니다.")
-    if not points:
-        return
-    if not write_api_key.strip():
-        raise ValueError("Qdrant 쓰기 키가 필요합니다.")
-
-    url = (
-        f"{settings.qdrant_url}/collections/"
-        f"{quote(collection, safe='')}/points?wait=true"
-    )
-    headers = {"Content-Type": "application/json", "Accept": "application/json", "api-key": write_api_key}
-    response = put_json(
-        url,
-        {"points": list(points)},
-        headers,
-        settings.timeout_seconds,
-        "Qdrant 적재",
-    )
-    if response.get("status") != "ok":
-        raise RagBackendError("Qdrant 적재가 완료되지 않았습니다.")
-
-
 def query_points(
     settings: RagSettings,
     collection: str,
-    embedding: HybridEmbedding,
+    vector: list[float],
     conditions: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, Any]]:
-    if collection not in COLLECTIONS:
-        raise ValueError("collection은 kb_accidents 또는 kb_guides여야 합니다.")
-    if limit <= 0:
-        raise ValueError("검색 limit는 양수여야 합니다.")
     url = (
         f"{settings.qdrant_url}/collections/"
         f"{quote(collection, safe='')}/points/query"
@@ -90,28 +35,12 @@ def query_points(
     if settings.qdrant_api_key:
         headers["api-key"] = settings.qdrant_api_key
 
-    qdrant_filter = {"must": conditions}
     response = post_json(
         url,
         {
-            "prefetch": [
-                {
-                    "query": embedding.dense,
-                    "using": "dense",
-                    "filter": qdrant_filter,
-                    "limit": limit,
-                },
-                {
-                    "query": {
-                        "indices": embedding.sparse.indices,
-                        "values": embedding.sparse.values,
-                    },
-                    "using": "sparse",
-                    "filter": qdrant_filter,
-                    "limit": limit,
-                },
-            ],
-            "query": {"fusion": "rrf"},
+            "query": vector,
+            "using": "dense",
+            "filter": {"must": conditions},
             "limit": limit,
             "with_payload": _PAYLOAD_FIELDS,
         },

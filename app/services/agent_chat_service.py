@@ -17,7 +17,7 @@ from app.agent.scenario.scenario_dispatch import (
 from app.agent.scenario.scenario_router import LABELS, Scenario
 from app.schemas.agent_chat import AgentChatRequest, AgentChatResponse, ModelInfo
 from app.schemas.agent_work import WorkRegisterResult
-from app.schemas.base_schemas import DataResponse
+from app.schemas import DataResponse
 
 
 def chat(dispatcher: ScenarioDispatcher, body: AgentChatRequest) -> DataResponse[AgentChatResponse]:

@@ -15,33 +15,11 @@ def post_json(
     timeout: float,
     service_name: str,
 ) -> Mapping[str, object]:
-    return request_json(url, body, headers, timeout, service_name, method="POST")
-
-
-def put_json(
-    url: str,
-    body: Mapping[str, object],
-    headers: Mapping[str, str],
-    timeout: float,
-    service_name: str,
-) -> Mapping[str, object]:
-    return request_json(url, body, headers, timeout, service_name, method="PUT")
-
-
-def request_json(
-    url: str,
-    body: Mapping[str, object],
-    headers: Mapping[str, str],
-    timeout: float,
-    service_name: str,
-    *,
-    method: str,
-) -> Mapping[str, object]:
     request = Request(
         url,
         data=json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8"),
         headers=dict(headers),
-        method=method,
+        method="POST",
     )
     try:
         with urlopen(request, timeout=timeout) as response:

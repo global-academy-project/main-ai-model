@@ -47,6 +47,7 @@ from app.llm.llm_provider import LLMClientProvider
 
 from .scenario_classifier import ScenarioClassifier
 from .scenario_router import (
+    LABELS,
     MAX_MESSAGE_CHARS,
     Scenario,
     ScenarioDecision,
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 PENDING_TEXT_KEY = "pending_text"  # ScenarioRequest.payload 키. 시나리오 되묻기 전에 받은 말
 SLOTS_KEY = "slots"  # ScenarioRequest.payload 키. 항목 되묻기 상태 (직전 응답의 slots 그대로)
+_MODE_PAYLOAD_KEY = "mode"  # 로그용. scenario_handlers.MODE_KEY와 같은 값 (거기서 가져오면 순환 임포트)
 
 
 def join_pending_text(pending: str | None, message: str | None) -> str:
@@ -181,11 +183,20 @@ class ScenarioDispatcher:
             else:
                 table[scenario] = fn
 
+    @property
+    def available_scenarios(self) -> tuple[Scenario, ...]:
+        """처리기가 있고 채팅 범위 안인 시나리오 (안내 문구의 선택지용, 화면 표시 순서)."""
+        return tuple(
+            s for s in LABELS
+            if s in self._handlers and (self._chat_scenarios is None or s in self._chat_scenarios)
+        )
+
     def dispatch(self, request: ScenarioRequest) -> DispatchResult:
         request, rejected = self._confirm_in_progress(request)
         decision, text = self._classify(request)
 
         if (ask := decision.ask) is not None:
+            self._log_decision(decision, request, None)
             return DispatchResult(decision, handled=False, ask=ask, continuation_rejected=rejected)
 
         if text != request.message:
@@ -195,6 +206,7 @@ class ScenarioDispatcher:
         original = decision.scenario
         decision = self._resolve(decision, request)
         resolved_from = original if decision.scenario is not original else None
+        self._log_decision(decision, request, resolved_from)  # 어떤 시나리오로 가는지 정해졌다
         if (ask := decision.ask) is not None:  # 보정 결과가 채팅 범위 밖
             return DispatchResult(
                 decision, handled=False, ask=ask, continuation_rejected=rejected, resolved_from=resolved_from
@@ -218,6 +230,26 @@ class ScenarioDispatcher:
             model={"engine": binding.engine, "model_id": binding.model_id},
             continuation_rejected=rejected,
             resolved_from=resolved_from,
+        )
+
+    def _log_decision(
+        self, decision: ScenarioDecision, request: ScenarioRequest, resolved_from: Scenario | None
+    ) -> None:
+        """어떤 시나리오로 처리하게 됐는지 한 줄로 남긴다. 사용자 말은 남기지 않는다.
+
+        scenario=UNKNOWN이면 처리기를 부르지 않고 되묻는다. redirect가 있으면 채팅 범위 밖이라 전용 화면을 안내한다.
+        source: llm(모델 분류) | fallback(키워드 규칙) | continuation(이어 가기) | explicit(직접 지정) | empty(빈 입력)
+        resolved_from: 현장 모드 보정으로 바뀌었으면 바뀌기 전 시나리오.
+        """
+        logger.info(
+            "시나리오 결정: scenario=%s source=%s confidence=%.2f resolved_from=%s mode=%s handler=%s redirect=%s",
+            decision.scenario.value,
+            decision.source,
+            decision.confidence,
+            resolved_from.value if resolved_from else None,
+            request.payload.get(_MODE_PAYLOAD_KEY),
+            decision.scenario in self._handlers,
+            decision.redirect.value if decision.redirect else None,
         )
 
     def _resolve(self, decision: ScenarioDecision, request: ScenarioRequest) -> ScenarioDecision:

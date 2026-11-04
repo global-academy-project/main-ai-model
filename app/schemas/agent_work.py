@@ -50,6 +50,12 @@ class WorkSlots(CamelModel):
     fire_watcher: str | None = None
     attendant: str | None = None
     asked_keys: list[str] = Field(default_factory=list, description="직전에 되물은 항목 key. 다음 발화의 짧은 답('3', '없음')을 읽는 데 쓴다")
+    asked_optional_keys: list[str] = Field(default_factory=list, description="한 번 물은 선택 항목 key (예: 'lel'). 다시 묻지 않는다")
+    pending_text: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="어떤 일인지 몰라 되물었을 때(시나리오 되묻기) 그 전까지 받은 말. 다음 요청에서 이번 답과 이어 붙여 다시 분류한다",
+    )
 
 
 class WorkRegisterRequest(CamelModel):
@@ -68,10 +74,13 @@ class AgentWorkRegisterRequest(WorkRegisterRequest):
 
     runId·siteId는 Spring이 정해 넘긴다 (LLM이 정하지 않는다). 빠지면 422.
     이 값은 check_rules 인자와 steps의 runId·siteId에 그대로 들어간다.
+    mode도 필수다(AgentRun.mode). 작업 등록이 A(VERIFY)인지 F(GUIDE)인지를 이 값으로 정하므로,
+    빠졌을 때 VERIFY로 두면 GUIDE 현장이 조용히 A로 처리된다.
     """
 
     run_id: PositiveId
     site_id: PositiveId
+    mode: Literal["VERIFY", "GUIDE"] = Field(description="sites.mode (AgentRun.mode). VERIFY → 시나리오 A, GUIDE → F")
 
 
 class MissingField(CamelModel):
