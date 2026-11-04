@@ -9,7 +9,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.agent.agent_deps import get_llm_provider
 from app.agent.rule_input_parse import parse_rule_input
 from app.api.v1.agent.rule_input_extract import router
 from app.core import get_settings
@@ -171,12 +170,12 @@ def client_with(llm) -> tuple[TestClient, FakeProvider]:
     app.add_exception_handler(LLMError, llm_error_handler)
     app.include_router(router)
     provider = FakeProvider(llm)
-    app.dependency_overrides[get_llm_provider] = lambda: provider
+    app.state.llm_provider = provider   # scenario_llm 이 app.state.llm_provider 에서 꺼낸다
     app.dependency_overrides[get_settings] = lambda: FakeSettings()
     return TestClient(app), provider
 
 
-def test_route_uses_scenario_b_and_returns_spring_shape():
+def test_route_uses_confined_space_gate_model_and_returns_spring_shape():
     http, provider = client_with(reply({"measurements": [m("O2", 17.0, "PCT", "낮게 나와서 17.0%")],
                                          "workTypes": [], "watcherName": None, "watcherEvidence": None}))
     res = http.post("/api/v1/extract/rule-input",
@@ -187,7 +186,7 @@ def test_route_uses_scenario_b_and_returns_spring_shape():
     assert body["data"]["measurements"][0] == {"item": "O2", "value": 17.0, "unit": "PCT",
                                                "evidence": "낮게 나와서 17.0%"}
     assert body["data"]["workTypes"] == [] and body["data"]["watcherName"] is None
-    assert provider.keys == ["B"]
+    assert provider.keys == ["confined_space_gate"]
     assert provider.client.calls[0]["max_tokens"] == 512
 
 
