@@ -30,6 +30,7 @@ from datetime import date
 
 from app.schemas.agent_work import MAX_UTTERANCES, MissingField, WorkSlots
 
+from .clarify import MARKER_PATTERN, TIME_KEYS, ampm_fields, is_unmarked, resolve_answer, to_24h
 from .text_rules import EQUIPMENT, MATERIALS, extract_locations, find_terms, is_negated, sentences, unique
 from .work_date import extract_work_date
 
@@ -41,13 +42,13 @@ ASK_LEL_ALONE = False
 # 가연성 가스(LEL)를 묻는 작업유형 (C 규칙: HOT_LEL_MAX, CONFINED_LEL_MAX)
 LEL_WORK_TYPES = frozenset({"화기", "밀폐공간"})
 
-_HOUR = r"(오전|오후)?\s*(\d{1,2})\s*시\s*(?:(\d{1,2})\s*분|(반))?"
+_HOUR = r"(" + MARKER_PATTERN + r")?\s*(\d{1,2})\s*시\s*(?:(\d{1,2})\s*분|(반))?"
 _CLOCK = r"(\d{1,2}):(\d{2})"
 # '17시 30분에 끝나요'의 '에'를 시작 시각으로 읽지 않게, 뒤에 끝·종료·마감이 오면 시작이 아니다.
 _START_RE = re.compile(_HOUR + r"\s*(?:에|부터)(?!\s*(?:끝|종료|마감))")
 # '10~12시', '오후 1시~3시': 물결 앞이 시작이다. 앞쪽은 '시'를 생략해도 된다 ('10~12시')
 _START_TILDE_RE = re.compile(
-    r"(오전|오후)?\s*(\d{1,2})\s*(?:시\s*(?:(\d{1,2})\s*분|(반))?)?\s*[~∼]\s*(?:오전|오후)?\s*\d{1,2}\s*시"
+    r"(" + MARKER_PATTERN + r")?\s*(\d{1,2})\s*(?:시\s*(?:(\d{1,2})\s*분|(반))?)?\s*[~∼]\s*(?:" + MARKER_PATTERN + r")?\s*\d{1,2}\s*시"
 )
 _END_RE = re.compile(_HOUR + r"\s*(?:에\s*)?(?:까지|종료|마감|끝)")
 _END_TILDE_RE = re.compile(r"[~∼]\s*" + _HOUR)
@@ -109,12 +110,10 @@ _HOT_WORK_KINDS: tuple[tuple[str, tuple[str, ...], str | None, str | None], ...]
 )
 
 
-def _to_hhmm(m: re.Match[str]) -> str | None:
+def _to_hhmm(m: re.Match[str], *, end: bool = False, daytime: bool = True) -> str | None:
     ampm, hour_s, minute_s, half = m.group(1), m.group(2), m.group(3), m.group(4)
-    hour = int(hour_s)
     minute = 30 if half else int(minute_s or 0)
-    if ampm == "오후" and hour < 12:
-        hour += 12
+    hour = to_24h(ampm, int(hour_s), end=end, daytime=daytime)  # 오전·오후·저녁 등과 주간 작업 전제 (clarify.to_24h)
     if hour > 24 or minute > 59:
         return None
     return f"{hour:02d}:{minute:02d}"
@@ -125,6 +124,12 @@ def _clock_to_hhmm(m: re.Match[str]) -> str | None:
     if hour > 24 or minute > 59:
         return None
     return f"{hour:02d}:{minute:02d}"
+
+
+def _note_unmarked(unmarked: set[str] | None, key: str, m: re.Match[str]) -> None:
+    """오전·오후 없이 읽은 시각이면 key를 적어 둔다 (clarify.is_unmarked). unmarked가 None이면 아무것도 안 한다."""
+    if unmarked is not None and is_unmarked(m.group(1), m.group(2)):
+        unmarked.add(key)
 
 
 def _hot_work_kind(text: str) -> str | None:
@@ -146,11 +151,14 @@ def _hot_work_kind(text: str) -> str | None:
     return ", ".join(result) or None
 
 
-def extract_slots(message: str, expecting: Sequence[str] = (), *, today: date | None = None) -> dict:
+def extract_slots(
+    message: str, expecting: Sequence[str] = (), *, today: date | None = None, unmarked: set[str] | None = None
+) -> dict:
     """발화 하나에서 읽은 값만 돌려준다 (못 읽은 항목은 키가 없다).
 
     `expecting`은 직전에 되물은 항목 key다. 발화가 짧은 답("3", "5시", "없음")이면 그 항목의 답으로 읽는다.
     `today`는 '내일' 같은 날짜의 기준일이다 (없으면 한국 시간 오늘).
+    `unmarked`를 주면 오전·오후 없이 읽은 시각의 key('start_time'·'end_time')를 거기에 담는다 (돌려주는 값은 그대로다).
     """
     found: dict = {}
     location, material_locations = extract_locations(message)
@@ -181,13 +189,21 @@ def extract_slots(message: str, expecting: Sequence[str] = (), *, today: date | 
         found["headcount"] = _KO_NUMBERS[m.group(1)]
     if work_date := extract_work_date(message, today):
         found["workDate"] = work_date
+    start_marker = None
     if (m := _START_RE.search(message) or _START_TILDE_RE.search(message)) and (hhmm := _to_hhmm(m)):
         found["start_time"] = hhmm
+        start_marker = m.group(1)
+        _note_unmarked(unmarked, "start_time", m)
     elif (m := _START_CLOCK_RE.search(message) or _START_CLOCK_TILDE_RE.search(message)) and (hhmm := _clock_to_hhmm(m)):
         found["start_time"] = hhmm
     end_match = _END_RE.search(message) or _END_TILDE_RE.search(message)
-    if end_match and (hhmm := _to_hhmm(end_match)):
+    if end_match and (hhmm := _to_hhmm(end_match, end=True)):
         found["end_time"] = hhmm
+        # 오전으로 시작하고 종료에 표시가 없으면 시작 뒤의 같은 오전으로 읽는다 ('오전 3시~5시', 주간 전제는 쓰지 않는다)
+        plain = _to_hhmm(end_match, daytime=False)
+        if start_marker and not end_match.group(1) and plain and plain > found["start_time"]:
+            found["end_time"] = plain
+        _note_unmarked(unmarked, "end_time", end_match)
     elif (end_match := _END_CLOCK_RE.search(message) or _END_CLOCK_TILDE_RE.search(message)) and (
         hhmm := _clock_to_hhmm(end_match)
     ):
@@ -206,12 +222,12 @@ def extract_slots(message: str, expecting: Sequence[str] = (), *, today: date | 
         found["fire_watcher"] = m.group(1)
     if (m := _ATTENDANT_RE.search(message)) and m.group(1) not in _NOT_A_NAME:
         found["attendant"] = m.group(1)
-    for key, value in _read_short_answer(message, expecting).items():
+    for key, value in _read_short_answer(message, expecting, unmarked).items():
         found.setdefault(key, value)
     return found
 
 
-def _read_short_answer(message: str, expecting: Sequence[str]) -> dict:
+def _read_short_answer(message: str, expecting: Sequence[str], unmarked: set[str] | None = None) -> dict:
     """직전에 물은 항목의 짧은 답을 읽는다. 어느 항목의 답인지 정할 수 없으면 읽지 않는다 (추측하지 않음)."""
     if not expecting:
         return {}
@@ -226,8 +242,9 @@ def _read_short_answer(message: str, expecting: Sequence[str]) -> dict:
     # 시각만 온 답: 시작·종료를 함께 물었으면 어느 쪽인지 모른다 ('10시부터 12시까지'는 extract_slots가 읽는다)
     asked_times = [k for k in ("start_time", "end_time") if k in expecting]
     if len(asked_times) == 1:
-        if (m := _BARE_TIME_RE.match(message)) and (hhmm := _to_hhmm(m)):
+        if (m := _BARE_TIME_RE.match(message)) and (hhmm := _to_hhmm(m, end=asked_times[0] == "end_time")):
             out[asked_times[0]] = hhmm
+            _note_unmarked(unmarked, asked_times[0], m)
         elif (m := _BARE_CLOCK_RE.match(message)) and (hhmm := _clock_to_hhmm(m)):
             out[asked_times[0]] = hhmm
     # '없음'만 온 답: 물질·장비·LEL 중 하나만 물었을 때만 읽는다. LEL '없음'은 0으로 바꾸지 않는다 (숫자만 읽음)
@@ -258,10 +275,30 @@ def _afternoon_end(start: str | None, end: str | None) -> str | None:
     return end
 
 
+def _held_times(slots: WorkSlots | None, today: date | None = None) -> dict[str, str]:
+    """오전·오후 없이 읽어 저장하지 않은 시각 {key: 'HH:MM'} (값이 아직 없는 항목만).
+
+    저장하지 않은 시각은 slots.utterances에 말한 그대로 남아 있으므로 발화를 다시 읽어 구한다 (slots에 새 필드가 없다).
+    '3' 같은 짧은 답은 시작·종료 중 값이 없는 항목이 하나일 때만 그 항목의 답으로 본다 (되물을 때와 같은 규칙).
+    """
+    held: dict[str, str] = {}
+    if slots is None:
+        return held
+    empty = [k for k in TIME_KEYS if getattr(slots, k) is None]
+    for utterance in slots.utterances:
+        unmarked: set[str] = set()
+        found = extract_slots(utterance, empty if len(empty) == 1 else (), today=today, unmarked=unmarked)
+        held.update({k: found[k] for k in unmarked if k in empty})
+    return held
+
+
 def merge_slots(previous: WorkSlots | None, message: str, *, today: date | None = None) -> WorkSlots:
+    held = _held_times(previous, today)
     base = (previous or WorkSlots()).model_dump()
     base["utterances"] = (base["utterances"] + [message.strip()])[-MAX_UTTERANCES:]
-    found = extract_slots(message, base.get("asked_keys", []), today=today)
+    unmarked: set[str] = set()
+    found = extract_slots(message, base.get("asked_keys", []), today=today, unmarked=unmarked)
+    found.update(resolve_answer(message, held) or {})  # '오후'만 온 답
     base["asked_keys"] = []  # 이번 발화로 답을 받았다. 다시 되묻게 되면 에이전트가 새로 채운다
     for key, value in found.items():
         if isinstance(value, list):
@@ -277,6 +314,16 @@ def merge_slots(previous: WorkSlots | None, message: str, *, today: date | None 
     base["excluded_equipment"] = [e for e in base["excluded_equipment"] if e not in latest_used]
     if base["nearby_materials"]:
         base["nearby_materials_none"] = False
+    # 오전·오후 없는 시각은 저장하지 않고 되묻는다 (_held_times가 발화에서 다시 읽는다). 시작이 확정이면 종료는 아래 규칙으로 정한다.
+    if "start_time" in unmarked:
+        end = base.get("end_time")
+        # 오후로 읽으면 종료보다 늦어지는 경우('6시부터 오후 3시까지')는 같은 날 안에서 오전뿐이라 되묻지 않는다
+        if not (end and "end_time" not in unmarked and _minutes(base["start_time"]) + 12 * 60 >= _minutes(end)):
+            base["start_time"] = None
+    if "end_time" in unmarked and base.get("start_time") is None:
+        base["end_time"] = None
+    if base.get("end_time") is None and held.get("end_time") and base.get("start_time") is not None:
+        base["end_time"] = held["end_time"]  # 종료를 먼저 말했고 이제 시작이 확정됐다
     base["end_time"] = _afternoon_end(base.get("start_time"), base.get("end_time"))
     return WorkSlots.model_validate(base)
 
@@ -315,7 +362,8 @@ def missing_fields(slots: WorkSlots, work_types: Sequence[str]) -> list[MissingF
         and (keys or ASK_LEL_ALONE)
     ):
         keys.append("lel")
-    return [MissingField(key=k, label=_QUESTIONS[k][0], question=_QUESTIONS[k][1]) for k in keys]
+    fields = [MissingField(key=k, label=_QUESTIONS[k][0], question=_QUESTIONS[k][1]) for k in keys]
+    return ampm_fields(fields, _held_times(slots))
 
 
 def with_asked(slots: WorkSlots, missing: Sequence[MissingField]) -> WorkSlots:
