@@ -16,6 +16,7 @@ import logging
 from typing import Annotated
 from fastapi import Depends, Request
 from app.tools.tool_registry import ToolRegistry
+from app.publicdata import register_publicdata_msds
 from ..tools.tool_setup import build_tool_registry
 from .work_register import WorkRegisterAgent
 from app.core import Settings, get_settings
@@ -32,7 +33,10 @@ logger = logging.getLogger(__name__)
 def get_tool_registry() -> ToolRegistry:
     # A의 도구는 기동 시 한 번 만든다. E의 search_records는 요청별 Spring 토큰이
     # 필요하므로 get_record_query_agent()에서 별도로 등록한다.
-    return build_tool_registry(rag_backend=get_settings().rag_backend)
+    return build_tool_registry(
+        rag_backend=get_settings().rag_backend,
+        extra=register_publicdata_msds,
+    )
 
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
 
@@ -63,7 +67,10 @@ def get_record_query_agent(
     if not forwarded_token:
         raise ToolError("TOOL_UNAVAILABLE", "Spring 내부 인증 헤더가 없습니다.", tool="search_records")
     logger.info("record-query 내부 인증 전달: scenario=E tokenProvided=%s", bool(forwarded_token))
-    registry = build_tool_registry(rag_backend=settings.rag_backend)
+    registry = build_tool_registry(
+        rag_backend=settings.rag_backend,
+        extra=register_publicdata_msds,
+    )
     client = InternalApiClient(
         settings.internal_api_base_url,
         forwarded_token,
