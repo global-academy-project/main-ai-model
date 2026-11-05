@@ -42,6 +42,10 @@ class Citation(CamelModel):
     ref_id: str = Field(description="KB: 청크 ID(uuid5, kb_point_id) / MSDS: CAS 번호 또는 물질명 / RULE: 규칙 코드")
     source: str = Field(description="화면에 보일 출처 표시")
     snippet: str = Field(min_length=1, max_length=300, description="인용 원문 일부 (원본이 바뀌어도 근거가 남도록)")
+    # KB 근거에만 채운다 (app/agent/kb_source.py). 셋 다 있거나 셋 다 없다. 서버가 근거 테이블에 저장할 때 쓴다.
+    source_type: str | None = Field(default=None, description="KB 출처 종류 (ACCIDENT_REPORT·SIF·NEAR_MISS·KOSHA_GUIDE·RISK_GUIDE·CHECKLIST·LAW)")
+    kb_collection: str | None = Field(default=None, description="KB 컬렉션 (kb_accidents·kb_guides)")
+    doc_id: str | None = Field(default=None, description="검색 결과 doc_id 그대로 ('{source_type}:{kb_source_id}')")
 
 
 class WorkPeriod(CamelModel):

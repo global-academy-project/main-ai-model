@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.exceptions import ToolError
+from app.rag.tags import classify_regulations
 from app.tools.tool_registry import ToolRegistry
 
 _BASE_URL = "https://apis.data.go.kr/B552468/msdschem1"
@@ -36,7 +37,8 @@ MSDS_PARAMETERS = {
 
 class KoshaMsdsClient:
     def __init__(self, service_key: str, *, timeout_seconds: float = 10.0) -> None:
-        if not service_key.strip():
+        service_key = service_key.strip()
+        if not service_key:
             raise ValueError("공공데이터 API 키가 필요합니다.")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds는 양수여야 합니다.")
@@ -105,6 +107,7 @@ class KoshaMsdsClient:
             for item in hazard_items
             if "분류" in item.get("msdsItemNameKor", "") and _clean_text(item.get("itemDetail", ""))
         ]
+        regulations = _format_details(regulation_items)
         return {
             "query": query,
             "found": True,
@@ -113,7 +116,8 @@ class KoshaMsdsClient:
             "ghs_classes": ghs_classes,
             "hazards": hazards,
             "first_aid": "\n".join(_format_details(first_aid_items)) or None,
-            "regulations": _format_details(regulation_items),
+            "regulations": regulations,
+            "regulatory_tags": classify_regulations(regulations),
             "source": _SOURCE,
         }
 
@@ -171,7 +175,7 @@ class KoshaMsdsClient:
 
 
 def register_publicdata_msds(registry: ToolRegistry) -> None:
-    service_key = os.getenv("KOSHA_MSDS_SERVICE_KEY")
+    service_key = os.getenv("KOSHA_MSDS_SERVICE_KEY", "").strip()
     if not service_key:
         return
 

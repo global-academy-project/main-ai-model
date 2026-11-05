@@ -55,9 +55,10 @@ from app.schemas.agent_work import (
 )
 
 from . import drafting
+from .done_message import build_done_message
 from .evidence_collector import MAX_SUMMARY_CHARS, EvidenceCollector, EvidencePack, StepRecord, WorkContext
 from .judgment import JudgeInput, judge, verify
-from .slots import ask_message, full_text, merge_slots, missing_fields
+from .slots import ask_message, full_text, merge_slots, missing_fields, with_asked
 from .text_rules import sentences
 from ..tools.tool_contract import ToolInvoker
 from ..tools.tool_registry import RecordingToolInvoker, ToolCallRecord, to_plain
@@ -127,7 +128,7 @@ class WorkRegisterAgent:
         if missing := missing_fields(slots, classification.work_types):
             return WorkRegisterResult(
                 run_status="WAITING_INPUT",
-                slots=slots.model_copy(update={"asked_keys": [f.key for f in missing]}),
+                slots=with_asked(slots, missing),
                 ask={"message": ask_message(missing), "missing_fields": missing},
                 classification=classification,
                 steps=log.steps,
@@ -176,6 +177,7 @@ class WorkRegisterAgent:
         rule_check, raw_by_permit = self._check_rules(
             tools, classification, slots, issues, _run_arguments(request, classification.required_permits)
         )
+        issues += _conflict_issues(rule_check)
 
         # ⑥ 자기검증
         started = time.perf_counter()
@@ -188,14 +190,14 @@ class WorkRegisterAgent:
         risk = self._fill(tools, "RISK_ASSESSMENT", drafting.risk_assessment_data(summary, slots, work_types, hazards))
         permits = [
             self._fill(tools, form_type, drafting.permit_data(
-                form_type, slots, hazards, rule_check if form_type in raw_by_permit else None, raw_by_permit.get(form_type, []), msds,
+                form_type, slots, hazards, rule_check if form_type in raw_by_permit else None, raw_by_permit.get(form_type, []), msds, issues=issues,
             ))
             for form_type in classification.required_permits
         ]
         block_reasons = [r for p in permits for r in p["block_reasons"]]
         block_titles = _block_titles(rule_check, block_reasons)
         checklist = self._fill(tools, "INSPECTION", drafting.checklist_data(slots, work_types))
-        tbm = self._fill(tools, "TBM", drafting.tbm_data(hazards, block_titles))
+        tbm = self._fill(tools, "TBM", drafting.tbm_data(hazards, block_titles, msds=msds))
         drafts = Drafts.model_validate(
             {"risk_assessment": risk, "permits": permits, "inspection_checklist": checklist, "tbm": tbm}
         )
@@ -208,6 +210,7 @@ class WorkRegisterAgent:
         return WorkRegisterResult(
             run_status="DONE",
             slots=slots,
+            ask={"message": build_done_message(drafts, request.mode), "missing_fields": []},
             classification=classification,
             evidence=_evidence_summary(pack),
             msds=msds,
@@ -233,7 +236,13 @@ class WorkRegisterAgent:
             logger.warning("MSDS 조회 실패: code=%s", exc.code, exc_info=exc)
             issues.append(VerificationIssue(code="MSDS_UNAVAILABLE", message=f"MSDS 조회에 실패했습니다 ({exc.code}): {exc.message}"))
             return []
-        return [MsdsDto.model_validate(r) for r in raw.get("results", [])]
+        results = [MsdsDto.model_validate(r) for r in raw.get("results", [])]
+        if unknown := [r.query for r in results if not r.found]:
+            issues.append(VerificationIssue(
+                code="MSDS_NOT_FOUND",
+                message=f"MSDS를 찾지 못한 물질이 있습니다: {', '.join(unknown)}. 허가서의 구분 칸이 비어 있으니 담당자가 확인하세요.",
+            ))
+        return results
 
     @staticmethod
     def _check_rules(
@@ -306,6 +315,20 @@ def _rule_summary(slots: WorkSlots) -> str:
                 return sentence[:MAX_SUMMARY_CHARS]
     last = sentences(slots.utterances[-1]) if slots.utterances else []
     return (last[0] if last else "작업")[:MAX_SUMMARY_CHARS]
+
+
+def _conflict_issues(rule_check: RuleCheckDto | None) -> list[VerificationIssue]:
+    """check_rules가 알려 준 동시작업 충돌을 확인 항목(verification)으로 올린다.
+
+    승인 요청 차단 여부는 여기서 정하지 않는다. 차단은 Spring 규칙 엔진의 몫이다(계획서 7-0장).
+    충돌 문구는 규칙 엔진이 준 그대로 쓴다.
+    """
+    if rule_check is None:
+        return []
+    return [
+        VerificationIssue(code="CONCURRENT_WORK_CONFLICT", message=f"같은 구역·시간대의 다른 작업과 겹칩니다: {c} 승인 전에 확인하세요.")
+        for c in rule_check.conflicts
+    ]
 
 
 def _block_titles(rule_check: RuleCheckDto | None, block_reasons: Sequence[str]) -> list[str]:
