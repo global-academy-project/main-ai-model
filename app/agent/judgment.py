@@ -29,6 +29,7 @@ from app.schemas.agent_work import MsdsDto, VerificationIssue
 from app.schemas.forms import ACCIDENT_TYPES, FREQUENCY_MAX, RISK_FACTORS, SEVERITY_MAX, Citation
 
 from .evidence_collector import EvidencePack, extract_json_object
+from .kb_source import kb_citation_fields
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,9 @@ def _snippet(text: str) -> str:
 
 
 def kb_citation(item: Any) -> Citation:
-    return Citation(kind="KB", ref_id=item.id, source=item.source, snippet=_snippet(item.text))
+    # 출처 종류·컬렉션·문서 id는 서버가 근거 테이블에 저장할 때 쓴다 (kb_source.py). item이 Any라 없는 속성은 비워 둔다.
+    extra = kb_citation_fields(getattr(item, "doc_id", None), getattr(item, "corpus", None))
+    return Citation(kind="KB", ref_id=item.id, source=item.source, snippet=_snippet(item.text), **extra)
 
 
 def msds_citation(m: MsdsDto) -> Citation:

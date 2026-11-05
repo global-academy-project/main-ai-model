@@ -10,8 +10,9 @@
 from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
-from app.schemas.agent_work import Classification, GuidanceNote, MsdsDto, RuleCheckDto, WorkSlots
+from app.schemas.agent_work import Classification, GuidanceNote, MsdsDto, RuleCheckDto, VerificationIssue, WorkSlots
 from app.schemas.forms import Citation
+from . import draft_extras as extras
 from .judgment import Hazard
 
 PERMIT_TITLES = {
@@ -25,6 +26,8 @@ _PERMIT_ACCIDENTS = {
     "HEIGHT_WORK_PERMIT": {"떨어짐"},
 }
 _ROLE_LABELS = {"FIRE_WATCHER": "화재감시자", "ATTENDANT": "감시인", "SUPERVISOR": "관리감독자"}
+# 주변 취급 물질을 되묻는 허가 (slots.py: 화기·밀폐공간 작업)
+_MATERIAL_PERMITS = frozenset({"HOT_WORK_PERMIT", "CONFINED_SPACE_PERMIT"})
 
 _EQUIPMENT_CHECKS: dict[str, tuple[str, ...]] = {
     "그라인더": ("그라인더 방호덮개 부착 상태", "연마석 균열·규격 확인"),
@@ -41,6 +44,8 @@ _EQUIPMENT_CHECKS: dict[str, tuple[str, ...]] = {
     "송풍기": ("송풍기 작동·덕트 연결 상태",),
     "가스측정기": ("가스측정기 교정 상태",),
     "발전기": ("발전기 접지 상태",),
+    "임팩트렌치": ("소켓·앤빌 고정 상태", "에어 호스·전원 코드 연결부 상태"),
+    "드릴": ("비트 고정·균열 확인", "전원 코드 피복·접지 상태"),
 }
 _WORK_TYPE_CHECKS: dict[str, tuple[str, ...]] = {
     "화기": ("소화기 비치", "불티 비산방지포 설치", "작업 반경 내 가연물 제거"),
@@ -102,7 +107,9 @@ def permit_data(
     rule_check: RuleCheckDto | None,
     raw_evaluations: Sequence[Mapping[str, Any]],
     msds: Sequence[MsdsDto],
+    issues: list[VerificationIssue] | None = None,
 ) -> dict[str, Any]:
+    """issues를 주면, 양식에 맞지 않아 칸으로 옮기지 못한 판정 항목을 거기에 남긴다 (실행을 멈추지 않는다)."""
     wanted = _PERMIT_ACCIDENTS[form_type]
     related = [n for n, h in enumerate(hazards, 1) if wanted & set(h.accident_types)]
     precautions: list[str] = []
@@ -112,19 +119,16 @@ def permit_data(
                 precautions.append(m)
     measurements, assignments = [], []
     for e in raw_evaluations:
-        if "item" in e:
-            measurements.append({
-                "item": e["item"], "unit": e["unit"], "value": e.get("value"),
-                "status": e["status"], "criterion": e["criterion"], "rule_code": e["rule_code"],
-            })
-        elif "role" in e:
-            assignments.append({
-                "role": e["role"], "label": _ROLE_LABELS[e["role"]], "assignee": e.get("assignee"),
-                "status": "ASSIGNED" if e.get("assignee") else "REQUIRED",
-            })
-        elif e.get("status") == "CHECK":
-            precautions.append(e["message"])
-    blocked_reasons = [e["message"] for e in raw_evaluations if e.get("severity") == "BLOCK" and e.get("status") != "PASS"]
+        kind, entry, skipped = extras.classify_evaluation(e, _ROLE_LABELS)
+        if skipped is not None:
+            _note_skipped(issues, form_type, skipped)
+        elif kind == "measurement":
+            measurements.append(entry)
+        elif kind == "assignment":
+            assignments.append(entry)
+        elif kind == "check":
+            precautions.append(entry["message"])
+    blocked_reasons = extras.block_reasons(raw_evaluations)  # 칸을 건너뛴 항목도 원래 판정 값으로 계산한다
     if rule_check is None:
         blocked_reasons = ["규칙 판정을 하지 못했습니다. 판정 전에는 승인 요청을 할 수 없습니다."]
     data: dict[str, Any] = {
@@ -140,18 +144,32 @@ def permit_data(
         "block_reasons": blocked_reasons,
     }
     if form_type == "HOT_WORK_PERMIT":
-        by_name = {m.name or m.query: m for m in msds}
         data["hot_work_kind"] = slots.hot_work_kind
+    if form_type in _MATERIAL_PERMITS:
+        by_name = {m.name or m.query: m for m in msds}
         data["nearby_hazardous_materials"] = [
             {
                 "name": name,
                 "location": slots.material_locations.get(name),
-                "category": (by_name[name].ghs_classes[0] if name in by_name and by_name[name].ghs_classes else None),
+                "category": (extras.flammable_category(by_name[name].ghs_classes) if name in by_name else None),
                 "cas_no": by_name[name].cas_no if name in by_name else None,
             }
             for name in slots.nearby_materials
         ]
     return data
+
+
+def _note_skipped(issues: list[VerificationIssue] | None, form_type: str, rule_code: str) -> None:
+    if issues is None:
+        return
+    issue = VerificationIssue(
+        code="PERMIT_EVALUATION_SKIPPED",
+        message=f"규칙 판정 '{rule_code}'을(를) {PERMIT_TITLES[form_type]}의 칸으로 옮기지 못했습니다 (항목·단위·역할 값이 양식과 다릅니다). "
+                "승인 차단 여부는 원래 판정 값으로 계산했습니다.",
+        target=rule_code,
+    )
+    if issue not in issues:
+        issues.append(issue)
 
 
 def checklist_data(slots: WorkSlots, work_types: Sequence[str]) -> dict[str, Any]:
@@ -174,7 +192,9 @@ def checklist_data(slots: WorkSlots, work_types: Sequence[str]) -> dict[str, Any
     return {"location": slots.location, "items": items}
 
 
-def tbm_data(hazards: Sequence[Hazard], block_titles: Sequence[str], max_points: int = 6) -> dict[str, Any]:
+def tbm_data(
+    hazards: Sequence[Hazard], block_titles: Sequence[str], max_points: int = 6, msds: Sequence[MsdsDto] = ()
+) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -188,6 +208,9 @@ def tbm_data(hazards: Sequence[Hazard], block_titles: Sequence[str], max_points:
     ranked = sorted(enumerate(hazards, 1), key=lambda t: -(t[1].frequency * t[1].severity))
     for n, h in ranked:
         add(f"{h.hazard}: {h.measures[0]}", [n])
+    for text in extras.first_aid_points(msds):  # MSDS 응급조치: 마지막 공통 요점 자리를 남기고 빈 자리에만 넣는다
+        if len(points) < max_points - 1:
+            add(text, [])
     add("비상 시 작업중지 신호·대피 경로·소화기 위치 공유", [])
     return {"points": points}
 
