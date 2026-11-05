@@ -45,7 +45,7 @@ SCENARIO_MODELS: dict[str, dict[str, str]] = {
     # "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-4B"},  # C · 밀폐공간 작업 → 기준 미달 차단
     # "C": {"engine": "NEAR_MISS_WARNING", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
     # "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-4B"},  # D · 마감 현황·TBM·안전일지
-    # "E": {"engine": "AUDIT_QUERY", "model_id": "모델 이름"},  # D · 감사 대응 기록 질의
+    "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-4B"},  # D · 기록질문
     # "F": {"engine": "SMALL_SITE_GUIDE", "model_id": "모델 이름"},  # B · 소규모 사업장 안내
 }
 
@@ -80,8 +80,11 @@ class Settings(BaseSettings):
     )
 
     check_rules_tool: Literal["MOCK", "SPRING"]
-    internal_api_base_url: str | None = None
+    # 로컬 Spring 기본 주소. 배포·compose 환경은 INTERNAL_API_BASE_URL로 덮어쓴다.
+    internal_api_base_url: str = "http://127.0.0.1:8080"
     internal_api_token: SecretStr | None = None
+    internal_api_connect_timeout_seconds: float = Field(default=2.0, gt=0, le=60)
+    internal_api_read_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
 
     # 시나리오별 엔진·모델. 기본값은 위 SCENARIO_MODELS 표다 (복사본을 써서 표 자체는 바뀌지 않는다).
     scenario_engines: dict[str, dict[str, str]] = Field(
@@ -154,9 +157,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_internal_api(self) -> "Settings":
-        """agent를 spring에서 규칙 확인할 수 있는지 기동 시점에 검증한다."""
+        """Spring 규칙 도구를 직접 사용할 때만 정적 토큰 설정을 검증한다."""
         if self.check_rules_tool == "SPRING":
-            if self.internal_api_base_url is None:
+            if not self.internal_api_base_url.strip():
                 raise ValueError("internal_api_base_url이 필요합니다.")
             if self.internal_api_token is None:
                 raise ValueError("internal_api_token 필요합니다.")
