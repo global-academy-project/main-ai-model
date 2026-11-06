@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 from functools import lru_cache
+import logging
 from typing import Annotated
 from fastapi import Depends, Request
 from app.tools.tool_registry import ToolRegistry
@@ -20,11 +21,21 @@ from .work_register import WorkRegisterAgent
 from app.core import Settings, get_settings
 from app.llm.llm_provider import LLMClientProvider
 from app.services.agent_work_service import WorkRegisterAgentFactory
+from app.agent.record_query import RecordQueryAgent
+from app.integrations import InternalApiClient
+from app.tools.record_search import SEARCH_RECORDS_PARAMETERS, make_search_records_tool
+from app.exceptions import ToolError
+
+logger = logging.getLogger(__name__)
 
 @lru_cache
 def get_tool_registry() -> ToolRegistry:
-    # RAG_BACKEND가 있으면 검색 도구 2개가 A의 검색으로 바뀐다. 없으면 mock. 설정이 틀리면 첫 호출 때 ValueError.
-    return build_tool_registry(rag_backend=get_settings().rag_backend)
+    # A의 도구는 기동 시 한 번 만든다. E의 search_records는 요청별 Spring 토큰이
+    # 필요하므로 get_record_query_agent()에서 별도로 등록한다.
+    return build_tool_registry(
+        rag_backend=get_settings().rag_backend,
+        extra=register_publicdata_msds,
+    )
 
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
 
@@ -44,6 +55,44 @@ def get_work_register_agent(
     return WorkRegisterAgent(llm=provider.get("A"), tools=registry, judge_max_tokens=settings.ai_max_output_tokens)
 
 WorkRegisterAgentDep = Annotated[WorkRegisterAgent, Depends(get_work_register_agent)]
+
+def get_record_query_agent(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    provider: LLMProviderDep,
+) -> RecordQueryAgent:
+    # Spring이 AI 호출 때 보낸 토큰을 같은 요청의 search_records 호출에 전달한다.
+    forwarded_token = request.headers.get("X-Internal-Token", "")
+    if not forwarded_token:
+        raise ToolError("TOOL_UNAVAILABLE", "Spring 내부 인증 헤더가 없습니다.", tool="search_records")
+    logger.info("record-query 내부 인증 전달: scenario=E tokenProvided=%s", bool(forwarded_token))
+    registry = build_tool_registry(
+        rag_backend=settings.rag_backend,
+        extra=register_publicdata_msds,
+    )
+    client = InternalApiClient(
+        settings.internal_api_base_url,
+        forwarded_token,
+        connect_timeout=settings.internal_api_connect_timeout_seconds,
+        read_timeout=settings.internal_api_read_timeout_seconds,
+    )
+    registry.register(
+        "search_records",
+        make_search_records_tool(client),
+        owner="D",
+        description="Spring 현장 기록 조회",
+        parameters=SEARCH_RECORDS_PARAMETERS,
+        replace=True,
+    )
+    binding = provider.binding_for("E")
+    logger.info(
+        "record-query 에이전트 선택: scenario=E engine=%s model=%s",
+        binding.engine,
+        binding.model_id,
+    )
+    return RecordQueryAgent(llm=provider.get("E"), tools=registry)
+
+RecordQueryAgentDep = Annotated[RecordQueryAgent, Depends(get_record_query_agent)]
 
 def get_work_register_agent_factory(
     settings: Annotated[Settings, Depends(get_settings)],
