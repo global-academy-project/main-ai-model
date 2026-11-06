@@ -27,7 +27,6 @@ def get_tool_registry() -> ToolRegistry:
     # RAG_BACKEND가 있으면 검색 도구 2개가 A의 검색으로 바뀐다. 없으면 mock. 설정이 틀리면 첫 호출 때 ValueError.
     return build_tool_registry(
         rag_backend=get_settings().rag_backend,
-        extra=register_publicdata_msds,
     )
 
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
