@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.exceptions import ToolError
 from app.embedding import http
 from app.embedding.config import RagEnvironmentSettings, RagSettings
+from app.rag.filters import read_filters
 from app.tools.adapters.rag_tools import register_rag_tools
 from app.tools.rag_loader import load_search_backend
 from app.tools.tool_registry import ToolRegistry
@@ -36,6 +37,11 @@ def test_rag_defaults_do_not_require_application_settings():
         tool.mock for tool in registry.tools()
         if tool.name in {"search_accidents", "search_guides"}
     )
+
+
+def test_search_site_filter_excludes_current_site():
+    _, _, site_ids = read_filters({"site_id": 17})
+    assert site_ids == [0]
 
 
 def test_backend_reads_infra_environment(monkeypatch):

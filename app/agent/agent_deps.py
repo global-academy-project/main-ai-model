@@ -16,6 +16,7 @@ import logging
 from typing import Annotated
 from fastapi import Depends, Request
 from app.tools.tool_registry import ToolRegistry
+from app.publicdata import register_publicdata_msds
 from ..tools.tool_setup import build_tool_registry
 from .work_register import WorkRegisterAgent
 from app.core import Settings, get_settings
