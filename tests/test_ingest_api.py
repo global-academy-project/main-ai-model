@@ -31,6 +31,7 @@ def _request_body():
                     "site_id": 0,
                     "flagged": False,
                     "title": "안전 가이드",
+                    "text": "작업 전 위험요인을 확인합니다.",
                 },
             }
         ],
@@ -79,6 +80,7 @@ def test_ingest_chunks_authenticates_and_indexes(monkeypatch):
         calls.append((settings, collection, chunks, write_api_key))
         return len(chunks)
 
+    monkeypatch.setattr(ingest_main, "validate_chunks", lambda settings, collection, chunks: None)
     monkeypatch.setattr(ingest_main, "index_chunks", fake_index_chunks)
     client = TestClient(ingest_main.app)
     response = client.post(
@@ -95,6 +97,55 @@ def test_ingest_chunks_authenticates_and_indexes(monkeypatch):
     assert chunks[0].point_id == "00000000-0000-0000-0000-000000000001"
     assert chunks[0].payload["flagged"] is False
     assert write_api_key == "qdrant-write-key"
+
+
+def test_ingest_finalizes_sources_after_ledger_check_and_index(monkeypatch):
+    _configure_environment(monkeypatch)
+    body = _request_body()
+    body["finalize_sources"] = [{"source_id": 1, "chunk_count": 1}]
+    calls = []
+
+    monkeypatch.setattr(
+        ingest_main,
+        "validate_chunks",
+        lambda settings, collection, chunks: calls.append("validate"),
+    )
+    monkeypatch.setattr(
+        ingest_main,
+        "index_chunks",
+        lambda settings, collection, chunks, *, write_api_key: calls.append("index") or len(chunks),
+    )
+    monkeypatch.setattr(
+        ingest_main,
+        "mark_sources_embedded",
+        lambda settings, expected_chunk_counts, embedding_model: calls.append(
+            ("embedded", expected_chunk_counts, embedding_model)
+        ),
+    )
+
+    client = TestClient(ingest_main.app)
+    response = client.post(
+        "/ingest/chunks",
+        headers={"Authorization": "Bearer ingest-token"},
+        json=body,
+    )
+
+    assert response.status_code == 200
+    assert calls == ["validate", "index", ("embedded", {1: 1}, "BAAI/bge-m3")]
+
+
+def test_ingest_rejects_finalization_for_source_not_in_batch(monkeypatch):
+    _configure_environment(monkeypatch)
+    body = _request_body()
+    body["finalize_sources"] = [{"source_id": 2, "chunk_count": 1}]
+
+    response = TestClient(ingest_main.app).post(
+        "/ingest/chunks",
+        headers={"Authorization": "Bearer ingest-token"},
+        json=body,
+    )
+
+    assert response.status_code == 422
 
 
 def test_ingest_near_miss_request_contract(monkeypatch):
@@ -253,6 +304,7 @@ def test_ingest_chunks_rejects_invalid_qdrant_point_id(monkeypatch):
 def test_index_chunks_embeds_and_upserts_dense_points(monkeypatch):
     from app.rag import indexing
     from app.rag.config import RagSettings
+    from app.rag.embedding import HybridEmbedding, SparseVector
 
     settings = RagSettings(
         embedding_url="http://embedding/v1/embeddings",
@@ -264,7 +316,13 @@ def test_index_chunks_embeds_and_upserts_dense_points(monkeypatch):
         qdrant_api_key=None,
     )
     calls = []
-    monkeypatch.setattr(indexing, "embed_text", lambda settings, text: [0.6, 0.8])
+    monkeypatch.setattr(
+        indexing,
+        "embed_texts",
+        lambda settings, texts: [
+            HybridEmbedding([0.6, 0.8], SparseVector([], [])) for _ in texts
+        ],
+    )
     monkeypatch.setattr(
         indexing,
         "upsert_points",
@@ -300,17 +358,17 @@ def test_delete_points_sends_qdrant_points_selector(monkeypatch):
     )
     calls = []
 
-    def fake_delete_json(url, body, headers, timeout, service_name):
+    def fake_post_json(url, body, headers, timeout, service_name):
         calls.append((url, body, headers, timeout, service_name))
         return {"status": "ok"}
 
-    monkeypatch.setattr(qdrant, "delete_json", fake_delete_json)
+    monkeypatch.setattr(qdrant, "post_json", fake_post_json)
     point_ids = ["00000000-0000-0000-0000-000000000001", 7]
 
     qdrant.delete_points(settings, "kb_accidents", point_ids, write_api_key="writer")
 
     url, body, headers, timeout, service_name = calls[0]
-    assert url == "http://qdrant:6333/collections/kb_accidents/points?wait=true"
+    assert url == "http://qdrant:6333/collections/kb_accidents/points/delete?wait=true"
     assert body == {"points": point_ids}
     assert headers["api-key"] == "writer"
     assert timeout == 5
@@ -352,3 +410,84 @@ def test_delete_json_uses_http_delete_with_points_body(monkeypatch):
     assert json.loads(request.data) == {"points": [1]}
     assert request.get_header("Api-key") == "writer"
     assert timeout == 5
+
+
+def test_catalog_validates_chunk_identity_and_marks_expected_count(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.rag import catalog
+    from app.rag.config import RagSettings
+    from app.rag.errors import RagBackendError
+    from app.rag.indexing import IndexableChunk
+
+    point_id = "00000000-0000-5000-8000-000000000001"
+    executed = []
+
+    class Cursor:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, query, params):
+            self.query = query
+            executed.append((query, params))
+
+        def fetchall(self):
+            if "LEFT JOIN kb_chunks" in self.query:
+                return [(1, 2)]
+            return [(2, 1, "kb_guides", point_id, "법령 조문", None, "LAW", None, False)]
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def close(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    class MySQLError(Exception):
+        pass
+
+    connection = Connection()
+    driver = SimpleNamespace(
+        MySQLError=MySQLError,
+        connect=lambda **kwargs: connection,
+    )
+    monkeypatch.setattr(catalog, "_mysql_driver", lambda: driver)
+    settings = RagSettings(
+        embedding_url="http://embedding",
+        qdrant_url="http://qdrant:6333",
+        embedding_model="BAAI/bge-m3",
+        embedding_dim=2,
+        timeout_seconds=5,
+        embedding_api_key=None,
+        qdrant_api_key=None,
+        kb_db_host="mysql",
+        kb_ingest_password="secret",
+    )
+    chunk = IndexableChunk(
+        point_id=point_id,
+        text="법령 조문",
+        payload={
+            "kb_source_id": 1,
+            "kb_chunk_id": 2,
+            "source_type": "LAW",
+            "site_id": 0,
+            "flagged": False,
+            "text": "법령 조문",
+        },
+    )
+
+    catalog.validate_chunks(settings, "kb_guides", [chunk])
+    with pytest.raises(RagBackendError, match="청크 수"):
+        catalog.mark_sources_embedded(settings, {1: 3}, "BAAI/bge-m3")
+
+    assert executed[0][1] == [2]
+    assert executed[1][1] == [1]
+    assert connection is not None
