@@ -9,8 +9,9 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
+from app.rag.catalog import mark_sources_embedded, mark_sources_failed, validate_chunks
 from app.rag.config import RagSettings
 from app.rag.errors import RagBackendError
 from app.rag.filters import COLLECTIONS
@@ -53,13 +54,21 @@ class IngestChunk(BaseModel):
         return value
 
 
+class SourceCompletion(BaseModel):
+    source_id: StrictInt = Field(gt=0)
+    chunk_count: StrictInt = Field(gt=0)
+
+
 class IngestRequest(BaseModel):
     collection: Literal["kb_accidents", "kb_guides"]
     chunks: list[IngestChunk] = Field(min_length=1, max_length=32)
+    finalize_sources: list[SourceCompletion] = Field(default_factory=list, max_length=32)
 
     @model_validator(mode="after")
     def validate_payloads(self) -> IngestRequest:
         required_fields = {"kb_source_id", "kb_chunk_id", "source_type", "site_id", "flagged"}
+        source_types: dict[int, str] = {}
+        chunk_ids: set[int] = set()
         for chunk in self.chunks:
             payload = chunk.payload
             if not required_fields <= payload.keys():
@@ -67,8 +76,10 @@ class IngestRequest(BaseModel):
             if (
                 isinstance(payload["kb_source_id"], bool)
                 or not isinstance(payload["kb_source_id"], int)
+                or payload["kb_source_id"] <= 0
                 or isinstance(payload["kb_chunk_id"], bool)
                 or not isinstance(payload["kb_chunk_id"], int)
+                or payload["kb_chunk_id"] <= 0
                 or isinstance(payload["site_id"], bool)
                 or not isinstance(payload["site_id"], int)
                 or payload["site_id"] < 0
@@ -76,8 +87,25 @@ class IngestRequest(BaseModel):
                 or payload["source_type"] not in COLLECTIONS[self.collection]
             ):
                 raise ValueError("payload 값이 collection의 RAG 스키마와 맞지 않습니다.")
+            if payload["source_type"] != "NEAR_MISS" and (
+                not isinstance(payload.get("text"), str) or not payload["text"].strip()
+            ):
+                raise ValueError("공공 지식 payload에 원문 text가 필요합니다.")
+            if payload["kb_chunk_id"] in chunk_ids:
+                raise ValueError("요청에 중복된 kb_chunk_id가 있습니다.")
+            chunk_ids.add(payload["kb_chunk_id"])
+            source_types[payload["kb_source_id"]] = payload["source_type"]
             if payload["source_type"] == "NEAR_MISS":
                 self._validate_near_miss(chunk)
+        completion_ids = [source.source_id for source in self.finalize_sources]
+        if len(set(completion_ids)) != len(completion_ids):
+            raise ValueError("finalize_sources에 중복된 kb_source_id가 있습니다.")
+        for source_id in self.finalize_sources:
+            source_type = source_types.get(source_id.source_id)
+            if source_type is None:
+                raise ValueError("완료 처리할 출처는 요청 청크에 포함되어야 합니다.")
+            if source_type == "NEAR_MISS":
+                raise ValueError("NEAR_MISS는 agent_kb 완료 처리 대상이 아닙니다.")
         return self
 
     @staticmethod
@@ -188,10 +216,38 @@ def ingest(body: IngestRequest, _: Annotated[None, Depends(authenticate)]) -> di
         for chunk in body.chunks
     ]
     try:
+        validate_chunks(settings, body.collection, chunks)
+    except RagBackendError as exc:
+        logger.exception("agent_kb ledger validation failed")
+        raise HTTPException(status_code=503, detail="지식 DB 장부 확인에 실패했습니다.") from exc
+
+    try:
         indexed = index_chunks(settings, body.collection, chunks, write_api_key=write_api_key)
     except RagBackendError as exc:
         logger.exception("Embedding or Qdrant indexing failed")
+        source_ids = sorted({
+            chunk.payload["kb_source_id"]
+            for chunk in chunks
+            if chunk.payload["source_type"] != "NEAR_MISS"
+        })
+        try:
+            mark_sources_failed(settings, source_ids, "임베딩 또는 Qdrant 적재에 실패했습니다.")
+        except RagBackendError:
+            logger.exception("agent_kb failure status update failed")
         raise HTTPException(status_code=502, detail="임베딩 또는 Qdrant 적재 요청이 실패했습니다.") from exc
+
+    try:
+        mark_sources_embedded(
+            settings,
+            {item.source_id: item.chunk_count for item in body.finalize_sources},
+            settings.embedding_model,
+        )
+    except RagBackendError as exc:
+        logger.exception("agent_kb completion status update failed")
+        raise HTTPException(
+            status_code=502,
+            detail="Qdrant 색인 후 지식 DB 완료 상태 저장에 실패했습니다.",
+        ) from exc
     return {"indexed": indexed}
 
 
