@@ -6,8 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.exceptions import ToolError
-from app.embedding import http
-from app.embedding.config import RagEnvironmentSettings, RagSettings
+from app.rag import http
+from app.rag.config import RagEnvironmentSettings, RagSettings
 from app.rag.filters import read_filters
 from app.tools.adapters.rag_tools import register_rag_tools
 from app.tools.rag_loader import load_search_backend
@@ -23,6 +23,7 @@ def isolated_environment(monkeypatch, tmp_path):
         "NETWORK_ENV", "RAG_BACKEND", "EMBEDDING_URL", "EMBEDDING_MODEL",
         "EMBEDDING_DIM", "EMBEDDING_API_KEY", "QDRANT_URL",
         "QDRANT_API_KEY", "QDRANT_READ_ONLY_API_KEY", "RAG_SEARCH_TIMEOUT_SECONDS",
+        "KB_DB_HOST", "KB_DB_PORT", "KB_DATABASE", "KB_INGEST_PASSWORD",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -54,6 +55,10 @@ def test_backend_reads_infra_environment(monkeypatch):
         "QDRANT_READ_ONLY_API_KEY": "test-reader-key",
         "QDRANT_API_KEY": "test-writer-key",
         "RAG_SEARCH_TIMEOUT_SECONDS": "7.5",
+        "KB_DB_HOST": "mysql",
+        "KB_DB_PORT": "3306",
+        "KB_DATABASE": "agent_kb",
+        "KB_INGEST_PASSWORD": "test-ingest-password",
     }
     for name, value in variables.items():
         monkeypatch.setenv(name, value)
@@ -67,9 +72,14 @@ def test_backend_reads_infra_environment(monkeypatch):
     assert backend.timeout_seconds == 7.5
     assert backend.embedding_api_key == "test-embedding-key"
     assert backend.qdrant_api_key == "test-reader-key"
+    assert backend.kb_db_host == "mysql"
+    assert backend.kb_db_port == 3306
+    assert backend.kb_database == "agent_kb"
+    assert backend.kb_ingest_password == "test-ingest-password"
     for representation in (repr(environment), repr(backend)):
         assert "test-embedding-key" not in representation
         assert "test-reader-key" not in representation
+        assert "test-ingest-password" not in representation
 
 
 def test_dotenv_loading_and_environment_priority(monkeypatch, tmp_path):
