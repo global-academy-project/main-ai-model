@@ -18,6 +18,10 @@ class RagEnvironmentSettings(BaseSettings):
     qdrant_url: str = "http://qdrant:6333"
     qdrant_read_only_api_key: SecretStr | None = None
     rag_search_timeout_seconds: float = Field(default=15.0, gt=0, allow_inf_nan=False)
+    kb_db_host: str | None = None
+    kb_db_port: int = Field(default=3306, gt=0, le=65535)
+    kb_database: str = "agent_kb"
+    kb_ingest_password: SecretStr | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -37,7 +41,9 @@ class RagEnvironmentSettings(BaseSettings):
             raise ValueError("RAG URL은 http 또는 https URL이어야 합니다.")
         return value.rstrip("/")
 
-    @field_validator("embedding_api_key", "qdrant_read_only_api_key", mode="before")
+    @field_validator(
+        "embedding_api_key", "qdrant_read_only_api_key", "kb_ingest_password", mode="before"
+    )
     @classmethod
     def strip_secret_whitespace(cls, value: SecretStr | str | None) -> SecretStr | str | None:
         if isinstance(value, SecretStr):
@@ -63,6 +69,10 @@ class RagSettings:
     timeout_seconds: float
     embedding_api_key: str | None = field(repr=False)
     qdrant_api_key: str | None = field(repr=False)
+    kb_db_host: str | None = None
+    kb_db_port: int = 3306
+    kb_database: str = "agent_kb"
+    kb_ingest_password: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> RagSettings:
@@ -87,6 +97,14 @@ class RagSettings:
             qdrant_api_key=(
                 settings.qdrant_read_only_api_key.get_secret_value()
                 if settings.qdrant_read_only_api_key is not None
+                else None
+            ),
+            kb_db_host=settings.kb_db_host.strip() if settings.kb_db_host else None,
+            kb_db_port=settings.kb_db_port,
+            kb_database=settings.kb_database,
+            kb_ingest_password=(
+                settings.kb_ingest_password.get_secret_value()
+                if settings.kb_ingest_password is not None
                 else None
             ),
         )
