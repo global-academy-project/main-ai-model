@@ -34,10 +34,16 @@ class EmbeddingRequest(BaseModel):
         return value
 
 
+class SparseEmbedding(BaseModel):
+    indices: list[int]
+    values: list[float]
+
+
 class EmbeddingItem(BaseModel):
     object: Literal["embedding"] = "embedding"
     index: int
     embedding: list[float]
+    sparse_embedding: SparseEmbedding
 
 
 class TokenUsage(BaseModel):
@@ -110,7 +116,7 @@ def create_app(
             raise HTTPException(status_code=503, detail="임베딩 모델이 준비되지 않았습니다.")
         texts = [body.input] if isinstance(body.input, str) else body.input
         try:
-            vectors, token_count = encoder.encode(texts)
+            embeddings, token_count = encoder.encode(texts)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -119,8 +125,15 @@ def create_app(
         return EmbeddingResponse(
             model=settings.embedding_model,
             data=[
-                EmbeddingItem(index=index, embedding=vector)
-                for index, vector in enumerate(vectors)
+                EmbeddingItem(
+                    index=index,
+                    embedding=embedding.dense,
+                    sparse_embedding=SparseEmbedding(
+                        indices=embedding.sparse.indices,
+                        values=embedding.sparse.values,
+                    ),
+                )
+                for index, embedding in enumerate(embeddings)
             ],
             usage=TokenUsage(prompt_tokens=token_count, total_tokens=token_count),
         )
