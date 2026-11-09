@@ -3,9 +3,9 @@ from io import BytesIO
 
 import pytest
 
-from app.embedding import http
-from app.embedding.config import RagSettings
-from app.embedding.types import HybridEmbedding, SparseVector
+from app.rag import http
+from app.rag.config import RagSettings
+from app.rag.embedding import HybridEmbedding, SparseVector
 from app.rag import indexing
 from app.rag.qdrant import make_point, query_points, upsert_points
 
