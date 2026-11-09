@@ -1,0 +1,46 @@
+{"id": "L01", "kind": "human", "category": "화기", "query": "용접 작업 시 화재감시자를 배치해야 하나요", "expect_articles": ["제241조의2"], "confidence": "high", "status": "candidate"}
+{"id": "L02", "kind": "human", "category": "화기", "query": "화기작업 전에 주변 가연물은 어떻게 조치하나요", "expect_articles": ["제241조", "제236조"], "confidence": "high", "status": "candidate", "note": "제241조 제2항(방호조치·소화기구), 제236조 제2항(가연물 별도 보관)"}
+{"id": "L03", "kind": "human", "category": "화기", "query": "인화성 유류가 있던 배관이나 탱크를 용접해도 되나요", "expect_articles": ["제240조"], "confidence": "high", "status": "candidate"}
+{"id": "L04", "kind": "human", "category": "화기", "query": "가스용접 호스와 취관은 어떻게 점검하나요", "expect_articles": ["제233조"], "confidence": "high", "status": "candidate"}
+{"id": "L05", "kind": "human", "category": "화기", "query": "위험물이 있는 장소에서 불꽃이 나는 공구를 써도 되나요", "expect_articles": ["제239조"], "confidence": "high", "status": "candidate"}
+{"id": "L06", "kind": "human", "category": "화기", "query": "인화성 가스가 있는 장소에 가스 검지 경보 장치를 설치해야 하나요", "expect_articles": ["제232조"], "confidence": "high", "status": "candidate", "note": "제232조 제2항"}
+{"id": "L06B", "kind": "human", "category": "화기", "query": "터널공사에서 인화성 가스 농도는 언제 측정하나요", "expect_articles": ["제350조"], "confidence": "high", "status": "candidate", "note": "건설 터널 한정"}
+{"id": "L07", "kind": "human", "category": "밀폐공간", "query": "밀폐공간 작업 전 산소와 유해가스 농도를 측정해야 하나요", "expect_articles": ["제619조의2"], "confidence": "high", "status": "candidate"}
+{"id": "L08", "kind": "human", "category": "밀폐공간", "query": "밀폐공간 작업 프로그램에는 무엇이 들어가야 하나요", "expect_articles": ["제619조"], "confidence": "high", "status": "candidate"}
+{"id": "L09", "kind": "human", "category": "밀폐공간", "query": "밀폐공간 작업 중 환기는 어떻게 해야 하나요", "expect_articles": ["제620조"], "confidence": "high", "status": "candidate"}
+{"id": "L10", "kind": "human", "category": "밀폐공간", "query": "밀폐공간 밖에 감시인을 배치해야 하나요", "expect_articles": ["제623조"], "confidence": "high", "status": "candidate"}
+{"id": "L11", "kind": "human", "category": "밀폐공간", "query": "밀폐공간에 들어가고 나올 때 인원 점검을 해야 하나요", "expect_articles": ["제621조"], "confidence": "high", "status": "candidate"}
+{"id": "L12", "kind": "human", "category": "밀폐공간", "query": "밀폐공간에 비상시 구출 장비를 갖춰 두어야 하나요", "expect_articles": ["제625조"], "confidence": "high", "status": "candidate"}
+{"id": "L13", "kind": "human", "category": "밀폐공간", "query": "밀폐공간에서 산소결핍 우려가 있으면 어떻게 하나요", "expect_articles": ["제639조"], "confidence": "high", "status": "candidate"}
+{"id": "L14", "kind": "human", "category": "고소", "query": "높이 2미터 이상에서 안전대를 걸 설비는 어떻게 하나요", "expect_articles": ["제44조"], "confidence": "high", "status": "candidate"}
+{"id": "L15", "kind": "human", "category": "고소", "query": "개구부에서 추락하지 않게 방호 조치는 어떻게 하나요", "expect_articles": ["제43조"], "confidence": "high", "status": "candidate"}
+{"id": "L16", "kind": "human", "category": "고소", "query": "안전난간은 어떤 구조로 설치해야 하나요", "expect_articles": ["제13조"], "confidence": "high", "status": "candidate"}
+{"id": "L17", "kind": "human", "category": "고소", "query": "작업발판을 설치하기 곤란한 높은 곳에서 추락을 막는 방법", "expect_articles": ["제42조"], "confidence": "high", "status": "candidate", "note": "추락방호망, 이동식 사다리"}
+{"id": "L18", "kind": "human", "category": "고소", "query": "지붕 위에서 작업할 때 추락을 막으려면", "expect_articles": ["제45조"], "confidence": "high", "status": "candidate"}
+{"id": "L19", "kind": "human", "category": "고소", "query": "이동식 비계로 작업할 때 지켜야 할 사항", "expect_articles": ["제68조"], "confidence": "high", "status": "candidate"}
+{"id": "L20", "kind": "human", "category": "전기", "query": "전기작업 전에 전로를 차단해야 하나요", "expect_articles": ["제319조"], "confidence": "high", "status": "candidate"}
+{"id": "L21", "kind": "human", "category": "전기", "query": "누전차단기를 설치해야 하는 전기 기계 기구는 무엇인가요", "expect_articles": ["제304조"], "confidence": "high", "status": "candidate"}
+{"id": "L22", "kind": "human", "category": "전기", "query": "전기 충전부에 감전되지 않게 방호하는 방법", "expect_articles": ["제301조"], "confidence": "high", "status": "candidate"}
+{"id": "L23", "kind": "human", "category": "양중", "query": "크레인으로 작업할 때 지켜야 할 조치", "expect_articles": ["제146조"], "confidence": "high", "status": "candidate"}
+{"id": "L24", "kind": "human", "category": "양중", "query": "양중기에 적재하중을 넘겨서 사용해도 되나요", "expect_articles": ["제135조"], "confidence": "high", "status": "candidate"}
+{"id": "L25", "kind": "human", "category": "양중", "query": "와이어로프 달기구의 안전계수 기준", "expect_articles": ["제163조"], "confidence": "high", "status": "candidate"}
+{"id": "L26", "kind": "human", "category": "기계", "query": "기계를 정비하거나 청소할 때 운전을 정지해야 하나요", "expect_articles": ["제92조"], "confidence": "high", "status": "candidate"}
+{"id": "L27", "kind": "human", "category": "굴착", "query": "굴착 작업 중 토사 붕괴 위험을 막는 방법", "expect_articles": ["제340조", "제339조"], "confidence": "high", "status": "candidate"}
+{"id": "L28", "kind": "human", "category": "굴착", "query": "굴착기 퀵커플러에 작업장치를 교체할 때 안전핀", "expect_articles": ["제221조의4"], "confidence": "high", "status": "candidate"}
+{"id": "C01", "kind": "colloquial", "category": "화기", "query": "용접하다 불똥이 튀어서 근처 자재에 불붙지 않게 하려면", "expect_articles": ["제241조"], "confidence": "medium", "status": "candidate", "note": "'불똥'↔'불티', 방화포 문구는 제241조 제2항 제4호"}
+{"id": "C02", "kind": "colloquial", "category": "밀폐공간", "query": "맨홀 들어가기 전에 공기 상태를 확인해야 하나요", "expect_articles": ["제619조의2", "제620조"], "confidence": "medium", "status": "candidate", "note": "'맨홀' 용어는 법령 본문에 거의 없음"}
+{"id": "C03", "kind": "colloquial", "category": "고소", "query": "사다리 타고 올라가서 작업할 때 지켜야 할 것", "expect_articles": ["제42조", "제24조"], "confidence": "medium", "status": "candidate", "note": "이동식 사다리는 제42조 제4항, 사다리식 통로는 제24조"}
+{"id": "C04", "kind": "colloquial", "category": "전기", "query": "전기 만지기 전에 전원 내리고 잠금장치와 표지를 붙여야 하나요", "expect_articles": ["제319조"], "confidence": "medium", "status": "candidate", "note": "잠금장치·꼬리표 문구가 제319조에 있음"}
+{"id": "C05", "kind": "colloquial", "category": "기계", "query": "기계 청소하다가 갑자기 돌아가서 다치지 않게 하려면", "expect_articles": ["제92조"], "confidence": "medium", "status": "candidate", "note": "기동장치 잠금(제92조 제2항)"}
+{"id": "C06", "kind": "colloquial", "category": "양중", "query": "크레인으로 짐 들어올릴 때 신호는 어떻게 하나요", "expect_articles": ["제40조", "제146조"], "confidence": "medium", "status": "candidate"}
+{"id": "C07", "kind": "colloquial", "category": "굴착", "query": "구덩이 파는 작업에서 흙이 무너지지 않게 하려면", "expect_articles": ["제340조", "제339조"], "confidence": "medium", "status": "candidate", "note": "'구덩이'↔'굴착'"}
+{"id": "C08", "kind": "colloquial", "category": "고소", "query": "높은 곳에서 안전벨트를 걸 곳이 없을 때", "expect_articles": ["제44조"], "confidence": "medium", "status": "candidate", "note": "'안전벨트'↔'안전대' (법령 본문에 '안전벨트' 0건)"}
+{"id": "C09", "kind": "colloquial", "category": "화기", "query": "용접 끝나고 불티가 남지 않게 뒤처리는 어떻게 하나요", "expect_articles": ["제245조", "제241조"], "confidence": "low", "status": "candidate", "note": "제245조 제2항(화기 사용 뒤처리), 제241조는 간접적"}
+{"id": "C10", "kind": "colloquial", "category": "밀폐공간", "query": "탱크 안에서 작업하던 사람이 쓰러졌을 때 조치", "expect_articles": ["제639조", "제625조", "제623조"], "confidence": "low", "status": "candidate", "note": "구출·대피·감시인 관련 조문이 여럿"}
+{"id": "A01", "kind": "agent", "category": "화기", "query": "화기작업 가연성가스 농도 측정 기준", "expect_articles": ["제232조"], "confidence": "low", "status": "candidate", "note": "vocab.py fire.gas_check 질의. 법령에 '가연성가스'·'LEL' 0건 → 용어 불일치 사례"}
+{"id": "A02", "kind": "agent", "category": "화기", "query": "화기작업 화재감시자 배치", "expect_articles": ["제241조의2"], "confidence": "high", "status": "candidate", "note": "vocab.py fire.watch 질의"}
+{"id": "A03", "kind": "agent", "category": "밀폐공간", "query": "밀폐공간 적정공기 산소 농도 기준", "expect_articles": ["제618조", "제619조의2", "제620조"], "confidence": "high", "status": "candidate", "note": "vocab.py confined.air 질의. 적정공기 정의는 제618조"}
+{"id": "A04", "kind": "agent", "category": "밀폐공간", "query": "밀폐공간 작업 감시인 배치", "expect_articles": ["제623조"], "confidence": "high", "status": "candidate", "note": "vocab.py confined.watch 질의"}
+{"id": "A05", "kind": "agent", "category": "고소", "query": "고소작업 추락 방지 안전대 작업발판", "expect_articles": ["제42조", "제43조", "제44조", "제13조"], "confidence": "high", "status": "candidate", "note": "vocab.py height.protection 질의"}
+{"id": "A06", "kind": "agent", "category": "전기", "query": "전기작업 정전 전원 차단 잠금", "expect_articles": ["제319조"], "confidence": "medium", "status": "candidate", "note": "vocab.py electric.isolation 질의"}
+{"id": "A07", "kind": "agent", "category": "양중", "query": "크레인 인양 줄걸이 작업 기준", "expect_articles": ["제146조", "제221조의5", "제40조"], "confidence": "low", "status": "candidate", "note": "vocab.py lifting.rigging 질의. '줄걸이' 법령 본문 0건"}
