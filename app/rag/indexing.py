@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import RagSettings
-from .embedding import embed_text
+from .embedding import embed_texts
 from .qdrant import make_point, upsert_points
 
 MAX_INDEX_BATCH_SIZE = 32
@@ -34,9 +34,12 @@ def index_chunks(
         batch = chunks[offset : offset + batch_size]
         if any(not chunk.text.strip() for chunk in batch):
             raise ValueError("빈 청크는 적재할 수 없습니다.")
+        embeddings = embed_texts(settings, [chunk.text for chunk in batch])
+        if len(embeddings) != len(batch):
+            raise RagBackendError("임베딩 서버가 청크 수와 다른 결과를 반환했습니다.")
         points = [
-            make_point(chunk.point_id, embed_text(settings, chunk.text), chunk.payload)
-            for chunk in batch
+            make_point(chunk.point_id, embedding, chunk.payload)
+            for chunk, embedding in zip(batch, embeddings)
         ]
         upsert_points(settings, collection, points, write_api_key=write_api_key)
         indexed += len(batch)
