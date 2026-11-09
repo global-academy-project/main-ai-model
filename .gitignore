@@ -41,6 +41,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+out/
 
 # Java / Spring Boot
 *.class
