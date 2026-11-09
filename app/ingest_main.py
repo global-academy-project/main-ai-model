@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from secrets import compare_digest
 from typing import Annotated, Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -11,7 +11,14 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
-from app.rag.catalog import mark_sources_embedded, mark_sources_failed, validate_chunks
+from app.rag.catalog import (
+    RegisteredChunk,
+    delete_stale_chunks,
+    mark_sources_embedded,
+    mark_sources_failed,
+    register_source_chunks,
+    validate_chunks,
+)
 from app.rag.config import RagSettings
 from app.rag.errors import RagBackendError
 from app.rag.filters import COLLECTIONS
@@ -182,6 +189,60 @@ class DeletePointsRequest(BaseModel):
         return [_validate_point_id(point_id) for point_id in value]
 
 
+class PublicSource(BaseModel):
+    source_type: Literal[
+        "ACCIDENT_REPORT", "SIF", "KOSHA_GUIDE", "RISK_GUIDE", "CHECKLIST", "LAW"
+    ]
+    external_id: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=300)
+    url: str | None = Field(default=None, max_length=500)
+    license: str | None = Field(default=None, max_length=50)
+    publisher: str | None = Field(default=None, max_length=100)
+    published_on: date | None = None
+    file_path: str | None = Field(default=None, max_length=500)
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    flagged: bool = False
+
+    @model_validator(mode="after")
+    def validate_catalog_fields(self) -> PublicSource:
+        if not self.external_id.strip() or not self.title.strip():
+            raise ValueError("external_id와 title은 공백일 수 없습니다.")
+        if not (self.url and self.url.strip()) and not (self.file_path and self.file_path.strip()):
+            raise ValueError("공공 source에는 url 또는 file_path가 필요합니다.")
+        return self
+
+
+class PublicSourceChunk(BaseModel):
+    chunk_index: StrictInt = Field(ge=0)
+    text: str = Field(min_length=1, max_length=32768)
+    embedding_text: str | None = Field(default=None, min_length=1, max_length=32768)
+    locator: str | None = Field(default=None, max_length=100)
+    token_count: StrictInt | None = Field(default=None, gt=0)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("text", "embedding_text")
+    @classmethod
+    def validate_nonblank_text(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("청크 본문은 공백일 수 없습니다.")
+        return value
+
+
+class PublicSourceIngestRequest(BaseModel):
+    collection: Literal["kb_accidents", "kb_guides"]
+    source: PublicSource
+    chunks: list[PublicSourceChunk] = Field(min_length=1, max_length=5000)
+
+    @model_validator(mode="after")
+    def validate_source_collection(self) -> PublicSourceIngestRequest:
+        if self.source.source_type not in COLLECTIONS[self.collection]:
+            raise ValueError("source_type이 collection과 맞지 않습니다.")
+        indexes = [chunk.chunk_index for chunk in self.chunks]
+        if len(set(indexes)) != len(indexes):
+            raise ValueError("요청에 중복된 chunk_index가 있습니다.")
+        return self
+
+
 def authenticate(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
 ) -> None:
@@ -199,6 +260,137 @@ def authenticate(
 @app.get("/ready")
 def ready():
     return {"status": "ok"}
+
+
+def _build_public_ingest_request(
+    body: PublicSourceIngestRequest,
+    source_id: int,
+    registered_chunks: list[RegisteredChunk],
+) -> IngestRequest:
+    ids_by_index = {chunk.chunk_index: chunk for chunk in registered_chunks}
+    chunks = []
+    for source_chunk in body.chunks:
+        registered = ids_by_index[source_chunk.chunk_index]
+        payload = dict(source_chunk.payload)
+        payload.update(
+            {
+                "kb_source_id": source_id,
+                "kb_chunk_id": registered.chunk_id,
+                "source_type": body.source.source_type,
+                "site_id": 0,
+                "flagged": body.source.flagged,
+                "title": body.source.title,
+                "locator": source_chunk.locator,
+                "url": body.source.url,
+                "text": source_chunk.text,
+            }
+        )
+        chunks.append(
+            IngestChunk(
+                point_id=registered.point_id,
+                text=source_chunk.embedding_text or source_chunk.text,
+                payload=payload,
+            )
+        )
+    return IngestRequest(
+        collection=body.collection,
+        chunks=chunks,
+        finalize_sources=[{"source_id": source_id, "chunk_count": len(chunks)}],
+    )
+
+
+def _mark_failed_after_ingest(settings: RagSettings, source_ids: list[int]) -> None:
+    try:
+        mark_sources_failed(settings, source_ids, "임베딩 또는 Qdrant 적재에 실패했습니다.")
+    except RagBackendError:
+        logger.exception("agent_kb failure status update failed")
+
+
+@app.post("/ingest/document")
+def ingest_document(
+    body: PublicSourceIngestRequest,
+    _: Annotated[None, Depends(authenticate)],
+) -> dict[str, Any]:
+    write_api_key = os.getenv("QDRANT_API_KEY", "").strip()
+    if not write_api_key:
+        raise HTTPException(status_code=503, detail="Qdrant 쓰기 설정이 없습니다.")
+    try:
+        settings = RagSettings.from_env()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="임베딩 설정이 올바르지 않습니다.") from exc
+
+    preflight_ids = [
+        RegisteredChunk(
+            chunk_index=chunk.chunk_index,
+            chunk_id=index + 1,
+            point_id=str(uuid5(
+                NAMESPACE_URL,
+                f"{body.source.source_type}:{body.source.external_id}:{chunk.chunk_index}",
+            )),
+        )
+        for index, chunk in enumerate(body.chunks)
+    ]
+    try:
+        _build_public_ingest_request(body, 1, preflight_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        registered = register_source_chunks(
+            settings,
+            body.collection,
+            body.source.model_dump(),
+            [chunk.model_dump() for chunk in body.chunks],
+        )
+        request = _build_public_ingest_request(body, registered.source_id, list(registered.chunks))
+        validate_chunks(
+            settings,
+            request.collection,
+            [
+                IndexableChunk(point_id=chunk.point_id, text=chunk.text, payload=chunk.payload)
+                for chunk in request.chunks
+            ],
+        )
+    except RagBackendError as exc:
+        logger.exception("agent_kb source registration or validation failed")
+        raise HTTPException(status_code=503, detail="지식 DB 원본·청크 등록 또는 검증에 실패했습니다.") from exc
+
+    indexable = [
+        IndexableChunk(point_id=chunk.point_id, text=chunk.text, payload=chunk.payload)
+        for chunk in request.chunks
+    ]
+    try:
+        indexed = index_chunks(settings, request.collection, indexable, write_api_key=write_api_key)
+        for offset in range(0, len(registered.stale_point_ids), 32):
+            delete_qdrant_points(
+                settings,
+                request.collection,
+                registered.stale_point_ids[offset : offset + 32],
+                write_api_key=write_api_key,
+            )
+        delete_stale_chunks(settings, registered.source_id, registered.stale_chunk_ids)
+        mark_sources_embedded(
+            settings,
+            {registered.source_id: len(request.chunks)},
+            settings.embedding_model,
+        )
+    except RagBackendError as exc:
+        logger.exception("Public source indexing failed")
+        _mark_failed_after_ingest(settings, [registered.source_id])
+        raise HTTPException(status_code=502, detail="임베딩, Qdrant 또는 장부 갱신이 실패했습니다.") from exc
+
+    return {
+        "indexed": indexed,
+        "source_id": registered.source_id,
+        "chunks": [
+            {
+                "chunk_index": chunk.chunk_index,
+                "chunk_id": chunk.chunk_id,
+                "point_id": chunk.point_id,
+            }
+            for chunk in registered.chunks
+        ],
+    }
 
 
 @app.post("/ingest/chunks")
