@@ -3,7 +3,7 @@
 LLM 호출 → JSON 꺼내기 → 검사(app/agent/rule_input_parse.py) → 응답(DataResponse).
 - 모델: 시나리오 confined_space_gate (글자 코드 B, 엔진 app/llm/engines/llm_confined_space_gate.py, 주인 C).
 - json_schema: 엔진의 chat() 이 이 인자를 받으면 넘긴다. 받지 않는 엔진(가짜·transformers)이면 빼고 부른다.
-- 모델 출력이 JSON 이 아니면 빈 결과 (Spring 은 사전 추출만 쓴다).
+- 모델 출력이 JSON 이 아니면 API 는 실패로 돌려준다 (Spring 은 사전 추출 결과 + 안내를 보여 준다). 평가 스크립트는 빈 결과로 센다.
 - LLMError 는 잡지 않는다. 기존 llm_error_handler 가 실패 응답(success: false)으로 바꾼다.
 """
 
@@ -16,6 +16,7 @@ from typing import Any
 from app.agent.evidence_collector.textutil import extract_json_object
 from app.agent.rule_input_parse import ExtractedRuleInput, parse_rule_input
 from app.agent.rule_input_prompt import build_system_prompt, build_user_message, output_schema
+from app.exceptions.llm_errors import LLMError
 from app.llm.llm_base import LLMClient
 from app.llm.llm_types import Message
 from app.schemas.base_schemas import DataResponse
@@ -37,6 +38,8 @@ def run_rule_input_extract(llm: LLMClient, body: RuleInputExtractRequest, *,
                            max_tokens: int | None = None) -> DataResponse[RuleInputExtraction]:
     out = extract_rule_input(llm, body.text, list(dict.fromkeys(body.measurement_items)),
                              list(dict.fromkeys(body.work_types)), max_tokens=max_tokens)
+    if not out.parsed:
+        raise LLMError("규칙 입력 추출: 모델 출력이 JSON 이 아님")   # Spring 은 사전 추출 결과 + 안내로 보여 준다
     data = RuleInputExtraction(
         measurements=[ExtractedMeasurement(item=m.item, value=float(m.value), unit=m.unit, evidence=m.evidence)
                       for m in out.measurements],
@@ -57,7 +60,7 @@ def extract_rule_input(llm: LLMClient, text: str, items: list[str], work_types: 
     raw = extract_json_object(response.text or "")
     if raw is None:
         log.warning("규칙 입력 추출: 모델 출력이 JSON 이 아님 (stop_reason=%s)", response.stop_reason)
-        return ExtractedRuleInput()
+        return ExtractedRuleInput(parsed=False)
     out = parse_rule_input(raw, text, items, work_types)
     if out.dropped:
         log.info("규칙 입력 추출: 버린 값 %d개 %s", len(out.dropped), out.dropped)
