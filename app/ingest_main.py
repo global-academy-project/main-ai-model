@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import os
 import logging
+import json
+import math
+import tempfile
 from datetime import date, datetime
+from pathlib import Path
 from secrets import compare_digest
 from typing import Annotated, Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, field_validator, model_validator
 
 from app.rag.catalog import (
     RegisteredChunk,
@@ -21,13 +25,16 @@ from app.rag.catalog import (
 )
 from app.rag.config import RagSettings
 from app.rag.errors import RagBackendError
+from app.rag.embedding import embed_texts
 from app.rag.filters import COLLECTIONS
 from app.rag.indexing import IndexableChunk, index_chunks
-from app.rag.qdrant import delete_points as delete_qdrant_points
+from app.rag.qdrant import delete_points as delete_qdrant_points, make_point, upsert_points
 
 app = FastAPI(title="KB Ingest API")
 bearer = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
+LOCAL_VECTOR_BATCH_SIZE = 8
+LOCAL_QDRANT_BATCH_SIZE = 32
 
 
 def _validate_point_id(value: object) -> str | int:
@@ -115,6 +122,7 @@ class IngestRequest(BaseModel):
                 raise ValueError("NEAR_MISS는 agent_kb 완료 처리 대상이 아닙니다.")
         return self
 
+
     @staticmethod
     def _validate_near_miss(chunk: IngestChunk) -> None:
         payload = chunk.payload
@@ -175,6 +183,101 @@ class IngestRequest(BaseModel):
             raise ValueError("NEAR_MISS title은 비어 있지 않은 문자열이어야 합니다.")
         if payload["text"] != chunk.text:
             raise ValueError("NEAR_MISS payload.text와 청크 text는 같아야 합니다.")
+
+
+class LocalVectorSaveRequest(IngestRequest):
+    dataset_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    chunks: list[IngestChunk] = Field(min_length=1, max_length=5000)
+
+    @model_validator(mode="after")
+    def validate_unique_point_ids(self) -> LocalVectorSaveRequest:
+        point_ids = [chunk.point_id for chunk in self.chunks]
+        if len(set(point_ids)) != len(point_ids):
+            raise ValueError("요청에 중복된 point_id가 있습니다.")
+        return self
+
+
+class LocalChunkRecord(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    natural_key: dict[str, Any]
+    text: str = Field(min_length=1, max_length=32768)
+    embed_text: str = Field(min_length=1, max_length=32768)
+    collection: Literal["kb_accidents", "kb_guides"] = "kb_guides"
+
+    @model_validator(mode="after")
+    def validate_chunk(self) -> LocalChunkRecord:
+        key = self.natural_key
+        part = key.get("part")
+        if (
+            not isinstance(key.get("law_key"), str)
+            or not key["law_key"].strip()
+            or not isinstance(key.get("article_key"), str)
+            or not key["article_key"].strip()
+            or isinstance(part, bool)
+            or not isinstance(part, int)
+            or part < 0
+        ):
+            raise ValueError("natural_key에 law_key, article_key, part가 필요합니다.")
+        if not self.text.strip() or not self.embed_text.strip():
+            raise ValueError("청크 text와 embed_text는 비어 있을 수 없습니다.")
+        return self
+
+
+class LocalChunkFileRequest(BaseModel):
+    dataset_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    chunk_file: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.jsonl$")
+
+
+class LocalVectorLoadRequest(BaseModel):
+    dataset_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    collection: Literal["kb_accidents", "kb_guides"]
+
+
+class LocalQdrantPoint(BaseModel):
+    id: str | int
+    vector: dict[str, Any]
+    payload: dict[str, Any]
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def validate_id(cls, value: object) -> str | int:
+        return _validate_point_id(value)
+
+    @model_validator(mode="after")
+    def validate_vector(self) -> LocalQdrantPoint:
+        dense = self.vector.get("dense")
+        if (
+            not isinstance(dense, list)
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                for value in dense
+            )
+        ):
+            raise ValueError("dense 벡터 형식이 올바르지 않습니다.")
+        sparse = self.vector.get("sparse")
+        if sparse is not None:
+            if not isinstance(sparse, dict):
+                raise ValueError("sparse 벡터 형식이 올바르지 않습니다.")
+            indices, values = sparse.get("indices"), sparse.get("values")
+            if (
+                not isinstance(indices, list)
+                or not isinstance(values, list)
+                or len(indices) != len(values)
+                or any(type(index) is not int or index < 0 for index in indices)
+                or indices != sorted(set(indices))
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    or value <= 0
+                    for value in values
+                )
+            ):
+                raise ValueError("sparse 벡터 형식이 올바르지 않습니다.")
+        return self
 
 
 class DeletePointsRequest(BaseModel):
@@ -441,6 +544,311 @@ def ingest(body: IngestRequest, _: Annotated[None, Depends(authenticate)]) -> di
             detail="Qdrant 색인 후 지식 DB 완료 상태 저장에 실패했습니다.",
         ) from exc
     return {"indexed": indexed}
+
+
+@app.post("/ingest/vectors/local")
+def save_local_vectors(
+    body: LocalVectorSaveRequest,
+    _: Annotated[None, Depends(authenticate)],
+) -> dict[str, str | int]:
+    try:
+        settings = RagSettings.from_env()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="임베딩 설정이 올바르지 않습니다.") from exc
+
+    output_dir = Path(os.getenv("LOCAL_VECTOR_DIR", "data/vectors")).expanduser()
+    destination = output_dir / f"{body.dataset_id}.jsonl"
+    temp_path: Path | None = None
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=output_dir,
+            prefix=f".{body.dataset_id}.",
+            suffix=".tmp",
+            delete=False,
+        ) as output:
+            temp_path = Path(output.name)
+            for offset in range(0, len(body.chunks), LOCAL_VECTOR_BATCH_SIZE):
+                batch = body.chunks[offset : offset + LOCAL_VECTOR_BATCH_SIZE]
+                embeddings = embed_texts(settings, [chunk.text for chunk in batch])
+                if len(embeddings) != len(batch):
+                    raise RagBackendError("임베딩 서버가 청크 수와 다른 결과를 반환했습니다.")
+                for chunk, embedding in zip(batch, embeddings):
+                    point = make_point(chunk.point_id, embedding, chunk.payload)
+                    output.write(
+                        json.dumps(
+                            {"collection": body.collection, "model": settings.embedding_model, **point},
+                            ensure_ascii=False,
+                            allow_nan=False,
+                        )
+                        + "\n"
+                    )
+        os.replace(temp_path, destination)
+    except RagBackendError as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        logger.exception("Local vector embedding failed")
+        raise HTTPException(status_code=502, detail="임베딩 요청이 실패했습니다.") from exc
+    except OSError as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        logger.exception("Local vector file save failed")
+        raise HTTPException(status_code=503, detail="로컬 벡터 파일 저장에 실패했습니다.") from exc
+
+    return {
+        "saved": len(body.chunks),
+        "dataset_id": body.dataset_id,
+        "file": destination.name,
+        "model": settings.embedding_model,
+    }
+
+
+@app.post("/ingest/vectors/local/file")
+def save_local_chunk_file_vectors(
+    body: LocalChunkFileRequest,
+    _: Annotated[None, Depends(authenticate)],
+) -> dict[str, str | int]:
+    input_dir = Path(os.getenv("LOCAL_CHUNK_DIR", "out/law")).expanduser().resolve()
+    chunk_path = (input_dir / body.chunk_file).resolve()
+    validation_path = (input_dir / "06_validation.json").resolve()
+    if chunk_path.parent != input_dir or validation_path.parent != input_dir:
+        raise HTTPException(status_code=422, detail="청크 파일 경로가 올바르지 않습니다.")
+    if not chunk_path.is_file():
+        raise HTTPException(status_code=404, detail="로컬 청크 파일을 찾을 수 없습니다.")
+    if not validation_path.is_file():
+        raise HTTPException(status_code=422, detail="06_validation.json이 필요합니다.")
+
+    try:
+        validation = json.loads(validation_path.read_text(encoding="utf-8"))
+        if validation.get("ok") is not True:
+            raise HTTPException(status_code=422, detail="청크 검증을 통과하지 못했습니다.")
+        records: list[LocalChunkRecord] = []
+        for line_number, line in enumerate(chunk_path.read_text(encoding="utf-8").splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                records.append(LocalChunkRecord.model_validate(json.loads(line)))
+            except (json.JSONDecodeError, ValidationError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"청크 파일 {line_number}번째 줄을 읽을 수 없습니다.",
+                ) from exc
+            if len(records) > 5000:
+                raise HTTPException(status_code=422, detail="청크 파일은 최대 5,000건까지 처리할 수 있습니다.")
+    except OSError as exc:
+        logger.exception("Local chunk file read failed")
+        raise HTTPException(status_code=503, detail="로컬 청크 파일을 읽지 못했습니다.") from exc
+    except (json.JSONDecodeError, AttributeError) as exc:
+        raise HTTPException(status_code=422, detail="06_validation.json 형식이 올바르지 않습니다.") from exc
+
+    summary = validation.get("summary")
+    expected_count = summary.get("chunks") if isinstance(summary, dict) else None
+    if (
+        not records
+        or isinstance(expected_count, bool)
+        or not isinstance(expected_count, int)
+        or expected_count != len(records)
+    ):
+        raise HTTPException(status_code=422, detail="청크 수가 검증 결과와 일치하지 않습니다.")
+    natural_keys = [
+        (record.natural_key["law_key"], record.natural_key["article_key"], record.natural_key["part"])
+        for record in records
+    ]
+    if len(set(natural_keys)) != len(natural_keys):
+        raise HTTPException(status_code=422, detail="청크 파일에 중복된 natural_key가 있습니다.")
+    collections = {record.collection for record in records}
+    if len(collections) != 1:
+        raise HTTPException(status_code=422, detail="청크 파일의 collection이 일치하지 않습니다.")
+    law_keys = {record.natural_key["law_key"] for record in records}
+    if len(law_keys) != 1:
+        raise HTTPException(status_code=422, detail="한 번에 하나의 법령 청크 파일만 처리할 수 있습니다.")
+    external_id = next(iter(law_keys))
+
+    index_map_path = input_dir / "chunk_index_map.json"
+    if not index_map_path.is_file():
+        raise HTTPException(status_code=422, detail="chunk_index_map.json이 필요합니다.")
+    try:
+        index_map_data = json.loads(index_map_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=422, detail="chunk_index_map.json을 읽을 수 없습니다.") from exc
+    indexes = index_map_data.get("indexes") if isinstance(index_map_data, dict) else None
+    if (
+        not isinstance(indexes, dict)
+        or index_map_data.get("source_type") != "LAW"
+        or index_map_data.get("external_id") != external_id
+        or any(
+            not isinstance(key, str)
+            or isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            for key, value in indexes.items()
+        )
+        or len(set(indexes.values())) != len(indexes)
+    ):
+        raise HTTPException(status_code=422, detail="chunk_index_map.json이 법령 또는 인덱스 형식과 맞지 않습니다.")
+
+    indexed_records: list[tuple[LocalChunkRecord, str]] = []
+    for record in records:
+        key = record.natural_key
+        natural_key = f"{key['law_key']}|{key['article_key']}|{key['part']}"
+        chunk_index = indexes.get(natural_key)
+        if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
+            raise HTTPException(status_code=422, detail="청크의 natural_key가 chunk_index_map.json에 없습니다.")
+        point_id = str(uuid5(NAMESPACE_URL, f"LAW:{external_id}:{chunk_index}"))
+        indexed_records.append((record, point_id))
+
+    try:
+        settings = RagSettings.from_env()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="임베딩 설정이 올바르지 않습니다.") from exc
+
+    output_dir = Path(os.getenv("LOCAL_VECTOR_DIR", "data/vectors")).expanduser()
+    destination = output_dir / f"{body.dataset_id}.jsonl"
+    temp_path: Path | None = None
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=output_dir,
+            prefix=f".{body.dataset_id}.",
+            suffix=".tmp",
+            delete=False,
+        ) as output:
+            temp_path = Path(output.name)
+            for offset in range(0, len(records), LOCAL_VECTOR_BATCH_SIZE):
+                batch = records[offset : offset + LOCAL_VECTOR_BATCH_SIZE]
+                embeddings = embed_texts(settings, [record.embed_text for record in batch])
+                if len(embeddings) != len(batch):
+                    raise RagBackendError("임베딩 서버가 청크 수와 다른 결과를 반환했습니다.")
+                for (record, point_id), embedding in zip(indexed_records[offset : offset + len(batch)], embeddings):
+                    point = make_point(point_id, embedding, record.model_dump())
+                    output.write(
+                        json.dumps(
+                            point,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                        )
+                        + "\n"
+                    )
+        os.replace(temp_path, destination)
+    except RagBackendError as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        logger.exception("Local file vectorization failed")
+        raise HTTPException(status_code=502, detail="임베딩 요청이 실패했습니다.") from exc
+    except OSError as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        logger.exception("Local vector file save failed")
+        raise HTTPException(status_code=503, detail="로컬 벡터 파일 저장에 실패했습니다.") from exc
+
+    return {
+        "saved": len(records),
+        "dataset_id": body.dataset_id,
+        "file": destination.name,
+        "collection": next(iter(collections)),
+        "model": settings.embedding_model,
+    }
+
+
+@app.post("/ingest/vectors/local/load")
+def load_local_vectors_to_qdrant(
+    body: LocalVectorLoadRequest,
+    _: Annotated[None, Depends(authenticate)],
+) -> dict[str, str | int]:
+    write_api_key = os.getenv("QDRANT_API_KEY", "").strip()
+    if not write_api_key:
+        raise HTTPException(status_code=503, detail="Qdrant 쓰기 설정이 없습니다.")
+    try:
+        settings = RagSettings.from_env()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="임베딩 설정이 올바르지 않습니다.") from exc
+
+    vector_dir = Path(os.getenv("LOCAL_VECTOR_DIR", "data/vectors")).expanduser().resolve()
+    vector_path = (vector_dir / f"{body.dataset_id}.jsonl").resolve()
+    if vector_path.parent != vector_dir:
+        raise HTTPException(status_code=422, detail="벡터 파일 경로가 올바르지 않습니다.")
+    if not vector_path.is_file():
+        raise HTTPException(status_code=404, detail="로컬 벡터 파일을 찾을 수 없습니다.")
+
+    points: list[dict[str, Any]] = []
+    point_ids: set[str | int] = set()
+    unlinked_payloads = 0
+    try:
+        for line_number, line in enumerate(vector_path.read_text(encoding="utf-8").splitlines(), start=1):
+            if not line.strip():
+                continue
+            if len(points) >= 5000:
+                raise HTTPException(status_code=422, detail="벡터 파일은 최대 5,000건까지 적재할 수 있습니다.")
+            try:
+                point = LocalQdrantPoint.model_validate(json.loads(line))
+            except (json.JSONDecodeError, ValidationError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"벡터 파일 {line_number}번째 줄이 Qdrant 포인트 형식이 아닙니다.",
+                ) from exc
+            if point.id in point_ids:
+                raise HTTPException(status_code=422, detail="벡터 파일에 중복된 point id가 있습니다.")
+            point_ids.add(point.id)
+            if len(point.vector["dense"]) != settings.embedding_dim:
+                raise HTTPException(status_code=422, detail="dense 벡터 차원이 EMBEDDING_DIM과 다릅니다.")
+
+            payload = point.payload
+            if payload.get("collection", body.collection) != body.collection:
+                raise HTTPException(status_code=422, detail="요청 collection과 payload collection이 다릅니다.")
+            if payload.get("source_type") not in COLLECTIONS[body.collection]:
+                raise HTTPException(status_code=422, detail="source_type이 collection과 맞지 않습니다.")
+            site_id = payload.get("site_id")
+            if isinstance(site_id, bool) or not isinstance(site_id, int) or site_id < 0:
+                raise HTTPException(status_code=422, detail="payload.site_id가 올바르지 않습니다.")
+            if not isinstance(payload.get("flagged"), bool):
+                raise HTTPException(status_code=422, detail="payload.flagged가 올바르지 않습니다.")
+            if not isinstance(payload.get("text"), str) or not payload["text"].strip():
+                raise HTTPException(status_code=422, detail="payload.text가 비어 있습니다.")
+
+            linked = True
+            for id_field in ("kb_source_id", "kb_chunk_id"):
+                value = payload.get(id_field)
+                if value is None:
+                    linked = False
+                elif isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                    raise HTTPException(status_code=422, detail=f"payload.{id_field}가 올바르지 않습니다.")
+            if not linked:
+                unlinked_payloads += 1
+            points.append(point.model_dump())
+    except OSError as exc:
+        logger.exception("Local vector file read failed")
+        raise HTTPException(status_code=503, detail="로컬 벡터 파일을 읽지 못했습니다.") from exc
+
+    if not points:
+        raise HTTPException(status_code=422, detail="벡터 파일이 비어 있습니다.")
+
+    try:
+        for offset in range(0, len(points), LOCAL_QDRANT_BATCH_SIZE):
+            upsert_points(
+                settings,
+                body.collection,
+                points[offset : offset + LOCAL_QDRANT_BATCH_SIZE],
+                write_api_key=write_api_key,
+            )
+    except RagBackendError as exc:
+        logger.exception("Local Qdrant upsert failed")
+        raise HTTPException(
+            status_code=502,
+            detail="Qdrant 적재 요청이 실패했습니다. 같은 요청으로 재시도할 수 있습니다.",
+        ) from exc
+
+    return {
+        "indexed": len(points),
+        "collection": body.collection,
+        "dataset_id": body.dataset_id,
+        "unlinked_payloads": unlinked_payloads,
+    }
 
 
 @app.post("/ingest/points/delete")
