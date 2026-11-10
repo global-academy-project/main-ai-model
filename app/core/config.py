@@ -42,7 +42,7 @@ SCENARIO_MODELS: dict[str, dict[str, str]] = {
     "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # 아래에서 고르지 않은 것 전부
     "router": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # B · 시나리오 분류 (채팅 접수)
     "A": {"engine": "WORK_REGISTER", "model_id": "Qwen/Qwen3-0.6B"},  # B · 작업 등록 → 되묻기 → 서류 초안
-    # "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-4B"},  # C · 밀폐공간 작업 → 기준 미달 차단
+    "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-1.7B"},  # C · 밀폐공간 작업 → 기준 미달 차단 (문장 추출. E와 같은 1.7B를 같이 씀, 어댑터 extract)
     # "C": {"engine": "NEAR_MISS_WARNING", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
     # "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-4B"},  # D · 마감 현황·TBM·안전일지 기록 질의
      "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-1.7B"},  # D · 감사 대응 질의
@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     scenario_engines: dict[str, dict[str, str]] = Field(
         default_factory=lambda: {key: dict(binding) for key, binding in SCENARIO_MODELS.items()}
     )
+
+    # LoRA 어댑터 이름 → 로컬 폴더 (env LLM_ADAPTERS, JSON 한 줄). 비우면 어댑터 없이 기본 모델만 쓴다 (기본값).
+    #   .env 예) LLM_ADAPTERS={"extract": "/models/adapters/extract", "record_query": "/models/adapters/record_query"}
+    #   Windows 경로는 슬래시로 적는다 (예: "D:/models/adapters/extract"). 역슬래시는 JSON 에서 \\ 로 두 번 적어야 한다.
+    # - 이름은 엔진 클래스의 adapter 와 짝을 맞춘다 (app/llm/engines/llm_<시나리오>.py 의 "LoRA 어댑터" 주석에 쓰는 순서가 있다).
+    # - 어댑터는 머지하지 않고 같은 기본 모델 위에 붙여 쓴다. 학습한 기본 모델(같은 model_id·같은 버전)과 같아야 한다.
+    # - 어댑터를 새로 넣거나 바꾸면 서버를 다시 띄운다 (처음 쓸 때 한 번만 읽는다).
+    llm_adapters: dict[str, str] = Field(default_factory=dict)
 
     # A의 검색 함수 위치 '모듈경로:함수이름' (예: app.rag.tool_backend:build_search_backend).
     # 비우면 mock 검색 도구를 그대로 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
