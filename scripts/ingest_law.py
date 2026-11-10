@@ -50,8 +50,18 @@ from app.chunking.law_ingest.fields import to_ingest_item
 SOURCE_TYPE = "LAW"
 COLLECTION = "kb_guides"
 # 기본 요청 크기: 임베딩 서버 EMBEDDING_MAX_BATCH_SIZE(compose 기본 8)와 맞춘다
+<<<<<<< Updated upstream
 BATCH_SIZE = int(os.getenv("EMBEDDING_MAX_BATCH_SIZE", "8"))
+=======
+<<<<<<< Updated upstream
+BATCH_SIZE = EmbeddingServerSettings.embedding_max_batch_size  
+>>>>>>> Stashed changes
 MAX_BATCH_SIZE = 32  # /ingest/chunks 한 요청의 상한 (그 이상은 서버가 422)
+=======
+BATCH_SIZE = 8
+# /ingest/chunks 한 요청의 상한 (그 이상은 서버가 422)
+MAX_BATCH_SIZE = int(os.getenv("EMBEDDING_MAX_BATCH_SIZE", "32"))  
+>>>>>>> Stashed changes
 STATUS_EMBEDDED = "EMBEDDED"
 SAMPLE_SIZE = 3
 

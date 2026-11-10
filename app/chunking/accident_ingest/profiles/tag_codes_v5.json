@@ -1,0 +1,7 @@
+{
+  "_comment": "Spring V5__near_miss_tags.sql 의 tag_codes INSERT 초기값 (2026-11-10). Spring이 코드를 바꾸면 이 파일을 갱신한다.",
+  "SEVERITY": ["NEAR_MISS", "MINOR", "SERIOUS", "FATAL"],
+  "ACCIDENT_TYPE": ["FIRE", "EXPLOSION", "LEAK", "ASPHYXIATION", "FALL", "TRIP", "CAUGHT", "STRUCK", "COLLAPSE", "ELECTRIC"],
+  "HAZARD": ["MECHANICAL", "ELECTRICAL", "CHEMICAL", "ENVIRONMENTAL", "HUMAN"],
+  "WORK_TYPE": ["GENERAL", "HOT", "CONFINED", "HEIGHT", "ELECTRICAL", "LIFTING"]
+}
