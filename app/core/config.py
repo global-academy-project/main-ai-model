@@ -104,6 +104,14 @@ class Settings(BaseSettings):
     vision_nms_threshold: float = Field(default=0.45, gt=0, lt=1)        # 이보다 많이 겹치면 점수 높은 박스만 남김
     vision_threads: int | None = Field(default=None, ge=1, le=64)        # ONNX CPU 스레드 수. 비우면 onnxruntime 기본 (1.7B 생성과 CPU 를 나눠 쓸 때 줄인다)
 
+    # 음성 → 글 (C, Whisper small 을 faster-whisper 로). 모델 폴더는 로컬만 읽는다 (scripts/download_models.py --only stt).
+    #   STT_MODEL_PATH 예) /models/whisper-small. 비우거나 폴더가 없으면 /api/v1/stt/* 는 503 (Spring 은 "직접 적어 주세요")
+    stt_model_path: str | None = None
+    stt_compute_type: Literal["int8", "int8_float32", "float32"] = "int8"   # CPU: int8 이 빠르고 메모리가 적다
+    stt_threads: int | None = Field(default=None, ge=1, le=64)              # CPU 스레드 수. 비우면 faster-whisper 기본
+    stt_beam_size: int = Field(default=1, ge=1, le=5)                        # 1 이 가장 빠름. 정확도가 부족하면 늘린다
+    stt_max_seconds: float = Field(default=35.0, gt=0, le=120)               # 이보다 긴 녹음은 422 (Spring 은 30초에서 끊음)
+
     # A의 검색 함수 위치 '모듈경로:함수이름' (예: app.rag.tool_backend:build_search_backend).
     # 비우면 mock 검색 도구를 그대로 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
     rag_backend: str | None = None
