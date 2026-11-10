@@ -7,12 +7,18 @@
 - 오류 정책(지침 4장): `LLMConfigError`에는 직접 쓴 고정 문구만 넘기고, transformers가 낸 오류 원문은 로그에만 남긴다.
   호출 실패는 `LLMError`(502). 손질 지점(`prepare_messages`·`generate_options`·`finish_text`)의 예외는 감싸지 않는다.
 - 오류·로그의 엔진 이름은 호출한 클라이언트의 `name`을 쓴다.
+- LoRA 어댑터 (11/10 추가, C): 클라이언트에 `adapter` 이름이 있으면 같은 기본 모델 위에 그 어댑터를 얹어 생성한다.
+  어댑터 폴더는 `Settings.llm_adapters`(env LLM_ADAPTERS, 이름 → 로컬 폴더)에서 찾고, 처음 쓸 때 한 번만 붙인다 (머지하지 않음).
+  어댑터를 붙인 모델에서 어댑터가 없는 엔진은 어댑터를 끄고 생성한다 (다른 엔진의 어댑터가 섞이지 않게).
+  폴더가 없거나 붙이지 못하면 경고만 남기고 기본 모델로 생성한다. 어댑터를 쓰는 엔진이 없으면 지금까지와 똑같이 동작한다.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import threading
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +51,8 @@ class _LoadedModel:
     def __init__(self, tokenizer: Any, model: Any) -> None:
         self.tokenizer = tokenizer
         self.model = model
+        self.adapters: set[str] = set()  # 이 모델에 붙인 LoRA 어댑터 이름
+        self.skipped: set[str] = set()   # 붙이지 못한 어댑터 (다시 시도하지 않고 기본 모델로 생성)
 
 
 _cache: dict[TransformersConfig, _LoadedModel] = {}
@@ -62,8 +70,8 @@ def _load(config: TransformersConfig, engine: str = DEFAULT_ENGINE_NAME) -> _Loa
         except (ImportError, OSError) as exc:
             logger.error("transformers/torch를 불러오지 못했습니다.", exc_info=exc, extra={"engine": engine})
             raise LLMConfigError(
-            "transformers 또는 torch를 불러오지 못했습니다. 설치와 실행 환경을 확인하세요.", engine=engine
-        ) from exc
+                "transformers 또는 torch를 불러오지 못했습니다. 설치와 실행 환경을 확인하세요.", engine=engine
+            ) from exc
         try:
             common = {"local_files_only": config.local_files_only, "revision": config.revision}
             tokenizer = AutoTokenizer.from_pretrained(config.model_id, **common)
@@ -90,6 +98,61 @@ def _load(config: TransformersConfig, engine: str = DEFAULT_ENGINE_NAME) -> _Loa
         return loaded
 
 
+def _adapter_paths() -> dict[str, str]:
+    """어댑터 이름 → 로컬 폴더 (Settings.llm_adapters, env LLM_ADAPTERS). 설정을 읽지 못하면 비어 있음."""
+    try:
+        from app.core import get_settings
+
+        return dict(getattr(get_settings(), "llm_adapters", None) or {})
+    except Exception as exc:  # noqa: BLE001 - 어댑터 설정 문제로 생성 자체를 막지 않는다
+        logger.warning("LLM_ADAPTERS 설정을 읽지 못해 어댑터 없이 생성합니다.", exc_info=exc)
+        return {}
+
+
+def _attach_adapter(loaded: _LoadedModel, name: str, engine: str) -> None:
+    """어댑터를 처음 쓸 때 한 번만 붙인다. 실패하면 skipped 에 넣고 기본 모델로 계속 (생성 잠금 안에서 부른다)."""
+    path = _adapter_paths().get(name)
+    if not path or not os.path.isdir(path):
+        loaded.skipped.add(name)
+        logger.warning("LoRA 어댑터 %s 폴더가 없어 기본 모델로 생성합니다 (LLM_ADAPTERS). path=%s", name, path,
+                       extra={"engine": engine})
+        return
+    try:
+        from peft import PeftModel
+    except (ImportError, OSError) as exc:
+        loaded.skipped.add(name)
+        logger.error("peft를 불러오지 못해 어댑터 %s 없이 생성합니다.", name, exc_info=exc, extra={"engine": engine})
+        return
+    try:
+        if loaded.adapters:
+            loaded.model.load_adapter(path, adapter_name=name)
+        else:
+            loaded.model = PeftModel.from_pretrained(loaded.model, path, adapter_name=name)
+        loaded.model.eval()
+        loaded.adapters.add(name)
+        logger.info("LoRA 어댑터 %s 를 붙였습니다. path=%s", name, path, extra={"engine": engine})
+    except Exception as exc:  # noqa: BLE001 - 어댑터 문제로 생성을 막지 않는다
+        loaded.skipped.add(name)
+        logger.error("LoRA 어댑터 %s 를 붙이지 못해 기본 모델로 생성합니다. path=%s", name, path, exc_info=exc,
+                     extra={"engine": engine})
+
+
+def _use_adapter(loaded: _LoadedModel, name: str | None, engine: str) -> AbstractContextManager[Any]:
+    """이번 생성에 쓸 어댑터를 고른다 (생성 잠금 안에서 부른다).
+    - 어댑터를 붙인 적 없는 모델: 아무것도 하지 않음 (지금까지와 같음)
+    - 이름이 붙어 있는 어댑터: 그 어댑터로 바꿈
+    - 이름이 없거나 붙이지 못한 어댑터: 어댑터를 끄고 기본 모델로
+    """
+    if name and name not in loaded.adapters and name not in loaded.skipped:
+        _attach_adapter(loaded, name, engine)
+    if not loaded.adapters:
+        return nullcontext()
+    if name in loaded.adapters:
+        loaded.model.set_adapter(name)
+        return nullcontext()
+    return loaded.model.disable_adapter()
+
+
 def clear_model_cache() -> None:
     """테스트나 모델 교체 때 읽어 둔 모델을 버린다."""
     with _cache_lock:
@@ -97,13 +160,13 @@ def clear_model_cache() -> None:
 
 
 def generate_chat(
-    client: LLMClient,
-    config: TransformersConfig,
-    messages: list[Message],
-    *,
-    system: str = "",
-    tools: list[ToolSpec] | None = None,
-    max_tokens: int | None = None,
+        client: LLMClient,
+        config: TransformersConfig,
+        messages: list[Message],
+        *,
+        system: str = "",
+        tools: list[ToolSpec] | None = None,
+        max_tokens: int | None = None,
 ) -> LLMResponse:
     """`client`의 손질 지점을 거쳐 transformers로 한 번 생성한다."""
     engine = client.name
@@ -140,7 +203,7 @@ def generate_chat(
             **template_kwargs,
         ).to(loaded.model.device)
         prompt_len = int(inputs["input_ids"].shape[-1])
-        with _generate_lock:
+        with _generate_lock, _use_adapter(loaded, getattr(client, "adapter", None), engine):
             output = loaded.model.generate(
                 **inputs,
                 max_new_tokens=limit,

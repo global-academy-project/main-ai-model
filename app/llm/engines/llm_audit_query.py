@@ -33,6 +33,22 @@ SPEC = EngineSpec(
 
 class AuditQueryClient(LLMClient):
     name = ENGINE_NAME
+    # ── LoRA 어댑터 (11/10 추가) ──────────────────────────────────────────────────────────────
+    # 같은 기본 모델(예: Qwen3-1.7B)을 쓰는 엔진끼리 기본 모델은 메모리에 한 번만 올리고, 요청마다 이 엔진의 어댑터로
+    # 바꿔 생성한다 (llm_transformers.py 의 _use_adapter). 어댑터를 쓰지 않으면 아래 adapter 줄을 주석으로 둔다 (지금과 똑같이 동작).
+    # 쓰는 순서:
+    #   1) 학습: config.py 시나리오 표에 적힌 것과 같은 기본 모델·같은 버전으로 LoRA(또는 QLoRA) 학습.
+    #      프롬프트는 실행 때와 같게 (chat 템플릿 system+user, enable_thinking=False).
+    #   2) 저장: peft 의 model.save_pretrained("<폴더>") 로 어댑터만 저장한다. 기본 모델에 머지하지 않는다.
+    #      폴더 안에 adapter_config.json, adapter_model.safetensors 두 파일이 있으면 된다.
+    #   3) 배치: 그 폴더를 ai-model 서버(로컬 디스크)에 둔다. 폐쇄망이면 미리 복사해 둔다 (허브에서 내려받지 않는다).
+    #   4) 설정: .env 의 LLM_ADAPTERS 에 "이름": "폴더" 를 더한다 (JSON 한 줄, 이름은 아래 adapter 와 같게).
+    #      예) LLM_ADAPTERS={"extract": "/models/adapters/extract", "record_query": "/models/adapters/record_query"}
+    #   5) 아래 adapter 줄의 주석을 풀고 서버를 다시 띄운다.
+    #   6) 확인: 이 엔진의 첫 요청 로그에 "LoRA 어댑터 <이름> 를 붙였습니다" 가 나오면 적용된 것.
+    #      "폴더가 없어 기본 모델로 생성합니다" 가 나오면 4) 의 경로·이름을 확인한다 (오류로 멈추지 않고 기본 모델로 답한다).
+    # 주의: peft 패키지가 설치돼 있어야 한다 (requirements). 엔진마다 다른 어댑터를 쓰면 이름도 달라야 한다.
+    # adapter = "record_query"
 
     # ── 손질 지점 (필요할 때만 주석을 풀어 고친다. 기본 동작은 아무것도 하지 않는 것과 같다) ──
     #
