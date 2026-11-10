@@ -96,6 +96,14 @@ class Settings(BaseSettings):
     # - 어댑터를 새로 넣거나 바꾸면 서버를 다시 띄운다 (처음 쓸 때 한 번만 읽는다).
     llm_adapters: dict[str, str] = Field(default_factory=dict)
 
+    # 사진 인식 (C, TBM 사진 사람 수). 모델 파일은 로컬 경로만 읽는다 (scripts/download_models.py 로 미리 받아 둔다).
+    #   VISION_MODEL_PATH 예) /models/yolox/yolox_nano.onnx. 비우거나 파일이 없으면 /api/v1/vision/* 는 503 (Spring 은 파일 정보 확인만 하고 계속)
+    vision_model_path: str | None = None
+    vision_input_size: int = Field(default=416, ge=64, le=1280)          # YOLOX-Nano 입력 크기 (공식 416)
+    vision_score_threshold: float = Field(default=0.4, gt=0, lt=1)       # 이 점수 미만 사람 박스는 버림
+    vision_nms_threshold: float = Field(default=0.45, gt=0, lt=1)        # 이보다 많이 겹치면 점수 높은 박스만 남김
+    vision_threads: int | None = Field(default=None, ge=1, le=64)        # ONNX CPU 스레드 수. 비우면 onnxruntime 기본 (1.7B 생성과 CPU 를 나눠 쓸 때 줄인다)
+
     # A의 검색 함수 위치 '모듈경로:함수이름' (예: app.rag.tool_backend:build_search_backend).
     # 비우면 mock 검색 도구를 그대로 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
     rag_backend: str | None = None
