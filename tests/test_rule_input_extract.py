@@ -111,6 +111,7 @@ def test_extractor_sends_prompt_and_parses_think_and_fence():
 def test_extractor_non_json_gives_empty():
     out = extract_rule_input(FakeLLMClient([text_response("모르겠습니다")]), TEXT, ITEMS, TYPES)
     assert out.measurements == [] and out.work_types == []
+    assert out.parsed is False   # JSON 이 아님 → API 는 실패로 돌려준다
 
 
 class SchemaClient(FakeLLMClient):
@@ -204,3 +205,10 @@ def test_route_rejects_unknown_item_and_empty_text():
     http, _ = client_with(FakeLLMClient())
     assert http.post("/api/v1/extract/rule-input", json={"text": TEXT, "measurementItems": ["XX"]}).status_code == 422
     assert http.post("/api/v1/extract/rule-input", json={"text": ""}).status_code == 422
+
+
+def test_route_non_json_is_failure_response():
+    """모델 출력이 JSON 이 아니면 실패 응답 (Spring 이 사전 추출 결과 + 안내로 보여 준다)."""
+    http, _ = client_with(FakeLLMClient([text_response("모르겠습니다")]))
+    res = http.post("/api/v1/extract/rule-input", json={"text": TEXT})
+    assert res.status_code >= 500 and res.json()["success"] is False
