@@ -205,10 +205,10 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
     from app.rag.embedding import HybridEmbedding, SparseVector
 
     _configure_environment(monkeypatch)
-    chunk_dir = tmp_path / "law"
-    chunk_dir.mkdir()
+    chunk_dir = tmp_path / "out" / "guides" / "law"
+    chunk_dir.mkdir(parents=True)
     output_dir = tmp_path / "vectors"
-    monkeypatch.setenv("LOCAL_CHUNK_DIR", str(chunk_dir))
+    monkeypatch.setenv("LOCAL_CHUNK_ROOT", str(tmp_path / "out"))
     monkeypatch.setenv("LOCAL_VECTOR_DIR", str(output_dir))
 
     records = []
@@ -222,6 +222,7 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
             "text": f"제{index + 1}조 원문",
             "embed_text": f"법령 머리말\n제{index + 1}조 원문",
             "collection": "kb_guides",
+                "source_type": "LAW",
             "kb_source_id": None,
             "kb_chunk_id": None,
             "point_id": None,
@@ -259,7 +260,12 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
     response = TestClient(ingest_main.app).post(
         "/ingest/vectors/local/file",
         headers={"Authorization": "Bearer ingest-token"},
-        json={"dataset_id": "law-local", "chunk_file": "05_chunks.jsonl"},
+        json={
+            "dataset_id": "law-local",
+            "data_type": "guides",
+            "subdir": "law",
+            "chunk_file": "05_chunks.jsonl",
+        },
     )
 
     assert response.status_code == 200
@@ -277,6 +283,82 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
     assert saved[0]["vector"]["sparse"] == {"indices": [4], "values": [1.0]}
     assert saved[0]["payload"]["text"] == records[0]["text"]
     assert saved[0]["payload"]["kb_source_id"] is None
+
+
+def test_save_local_chunk_file_vectors_supports_sif_records(monkeypatch, tmp_path):
+    from app.rag.embedding import HybridEmbedding, SparseVector
+
+    _configure_environment(monkeypatch)
+    chunk_dir = tmp_path / "out" / "accidents" / "law"
+    chunk_dir.mkdir(parents=True)
+    output_dir = tmp_path / "vectors"
+    monkeypatch.setenv("LOCAL_CHUNK_ROOT", str(tmp_path / "out"))
+    monkeypatch.setenv("LOCAL_VECTOR_DIR", str(output_dir))
+    external_id = "SIF-test-case"
+    record = {
+        "natural_key": {
+            "dataset": "sif",
+            "record": external_id,
+            "section": "case",
+            "part": 0,
+        },
+        "external_id": external_id,
+        "chunk_index": 0,
+        "text": "[재해개요]\n사고 원문",
+        "embed_text": "SIF > 작업 > 사고 원문",
+        "title": "SIF 안전 사례",
+        "locator": "재해개요·유발요인·감소대책(예시)",
+        "source_type": "SIF",
+        "collection": "kb_accidents",
+        "site_id": 0,
+        "flagged": False,
+        "year": 2024,
+        "severity": "FATAL",
+        "accident_type": ["FIRE"],
+        "hazard": ["CHEMICAL"],
+        "work_type": ["HOT"],
+        "cas": [],
+        "ghs": [],
+        "url": "https://example.test/sif",
+        "kb_source_id": None,
+        "kb_chunk_id": None,
+        "point_id": None,
+    }
+    (chunk_dir / "05_chunks.jsonl").write_text(
+        json.dumps(record, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    (chunk_dir / "06_validation.json").write_text(
+        json.dumps({"ok": True, "law": "other", "summary": {"chunks": 695}}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        ingest_main,
+        "embed_texts",
+        lambda settings, texts: [HybridEmbedding([0.6, 0.8], SparseVector([4], [1.0]))],
+    )
+    response = TestClient(ingest_main.app).post(
+        "/ingest/vectors/local/file",
+        headers={"Authorization": "Bearer ingest-token"},
+        json={
+            "dataset_id": "sif-test",
+            "data_type": "accidents",
+            "subdir": "law",
+            "chunk_file": "05_chunks.jsonl",
+            "validation_file": "AQu7Btppx9t.json",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["collection"] == "kb_accidents"
+    assert response.json()["validation"] == "structural"
+    saved = json.loads((output_dir / "sif-test.jsonl").read_text(encoding="utf-8"))
+    assert saved["id"] == str(uuid5(NAMESPACE_URL, f"SIF:{external_id}:0"))
+    assert saved["payload"]["source_type"] == "SIF"
+    assert saved["payload"]["text"] == record["text"]
+    assert saved["payload"]["accident_type"] == ["FIRE"]
+    assert saved["payload"]["kb_source_id"] is None
 
 
 def test_save_local_chunk_file_requires_passing_validation(monkeypatch, tmp_path):

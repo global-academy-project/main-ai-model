@@ -208,17 +208,39 @@ class LocalChunkRecord(BaseModel):
     @model_validator(mode="after")
     def validate_chunk(self) -> LocalChunkRecord:
         key = self.natural_key
-        part = key.get("part")
-        if (
-            not isinstance(key.get("law_key"), str)
-            or not key["law_key"].strip()
-            or not isinstance(key.get("article_key"), str)
-            or not key["article_key"].strip()
-            or isinstance(part, bool)
-            or not isinstance(part, int)
-            or part < 0
-        ):
-            raise ValueError("natural_key에 law_key, article_key, part가 필요합니다.")
+        if self.collection == "kb_guides":
+            part = key.get("part")
+            if (
+                not isinstance(key.get("law_key"), str)
+                or not key["law_key"].strip()
+                or not isinstance(key.get("article_key"), str)
+                or not key["article_key"].strip()
+                or isinstance(part, bool)
+                or not isinstance(part, int)
+                or part < 0
+            ):
+                raise ValueError("법령 natural_key에 law_key, article_key, part가 필요합니다.")
+        else:
+            extra = self.model_extra or {}
+            external_id = extra.get("external_id")
+            chunk_index = extra.get("chunk_index")
+            if (
+                key.get("dataset") != "sif"
+                or not isinstance(key.get("record"), str)
+                or not key["record"].strip()
+                or not isinstance(key.get("section"), str)
+                or not key["section"].strip()
+                or isinstance(key.get("part"), bool)
+                or not isinstance(key.get("part"), int)
+                or key["part"] < 0
+                or not isinstance(external_id, str)
+                or external_id != key.get("record")
+                or isinstance(chunk_index, bool)
+                or not isinstance(chunk_index, int)
+                or chunk_index < 0
+                or extra.get("source_type") != "SIF"
+            ):
+                raise ValueError("SIF 청크 natural_key, external_id, chunk_index, source_type가 올바르지 않습니다.")
         if not self.text.strip() or not self.embed_text.strip():
             raise ValueError("청크 text와 embed_text는 비어 있을 수 없습니다.")
         return self
@@ -227,6 +249,9 @@ class LocalChunkRecord(BaseModel):
 class LocalChunkFileRequest(BaseModel):
     dataset_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
     chunk_file: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.jsonl$")
+    data_type: Literal["accidents", "guides"] | None = None
+    subdir: str = Field(default="law", pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    validation_file: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.json$")
 
 
 class LocalVectorLoadRequest(BaseModel):
@@ -611,20 +636,39 @@ def save_local_chunk_file_vectors(
     body: LocalChunkFileRequest,
     _: Annotated[None, Depends(authenticate)],
 ) -> dict[str, str | int]:
-    input_dir = Path(os.getenv("LOCAL_CHUNK_DIR", "out/law")).expanduser().resolve()
+    if body.data_type is None:
+        input_dir = Path(os.getenv("LOCAL_CHUNK_DIR", "out/law")).expanduser().resolve()
+    else:
+        input_root = Path(os.getenv("LOCAL_CHUNK_ROOT", "out")).expanduser().resolve()
+        input_dir = (input_root / body.data_type / body.subdir).resolve()
+        try:
+            input_dir.relative_to(input_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="청크 디렉터리 경로가 올바르지 않습니다.") from exc
     chunk_path = (input_dir / body.chunk_file).resolve()
-    validation_path = (input_dir / "06_validation.json").resolve()
-    if chunk_path.parent != input_dir or validation_path.parent != input_dir:
+    validation_file = body.validation_file
+    if validation_file is None and body.data_type != "accidents":
+        validation_file = "06_validation.json"
+    validation_path = (input_dir / validation_file).resolve() if validation_file else None
+    if chunk_path.parent != input_dir or (
+        validation_path is not None and validation_path.parent != input_dir
+    ):
         raise HTTPException(status_code=422, detail="청크 파일 경로가 올바르지 않습니다.")
     if not chunk_path.is_file():
         raise HTTPException(status_code=404, detail="로컬 청크 파일을 찾을 수 없습니다.")
-    if not validation_path.is_file():
-        raise HTTPException(status_code=422, detail="06_validation.json이 필요합니다.")
+    if validation_path is not None and not validation_path.is_file():
+        if body.data_type == "accidents":
+            validation_path = None
+            validation_file = None
+        else:
+            raise HTTPException(status_code=422, detail=f"검증 파일을 찾을 수 없습니다: {validation_file}")
 
+    validation: dict[str, Any] | None = None
     try:
-        validation = json.loads(validation_path.read_text(encoding="utf-8"))
-        if validation.get("ok") is not True:
-            raise HTTPException(status_code=422, detail="청크 검증을 통과하지 못했습니다.")
+        if validation_path is not None:
+            validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            if validation.get("ok") is not True:
+                raise HTTPException(status_code=422, detail="청크 검증을 통과하지 못했습니다.")
         records: list[LocalChunkRecord] = []
         for line_number, line in enumerate(chunk_path.read_text(encoding="utf-8").splitlines(), start=1):
             if not line.strip():
@@ -644,61 +688,129 @@ def save_local_chunk_file_vectors(
     except (json.JSONDecodeError, AttributeError) as exc:
         raise HTTPException(status_code=422, detail="06_validation.json 형식이 올바르지 않습니다.") from exc
 
-    summary = validation.get("summary")
-    expected_count = summary.get("chunks") if isinstance(summary, dict) else None
-    if (
-        not records
-        or isinstance(expected_count, bool)
-        or not isinstance(expected_count, int)
-        or expected_count != len(records)
-    ):
-        raise HTTPException(status_code=422, detail="청크 수가 검증 결과와 일치하지 않습니다.")
-    natural_keys = [
-        (record.natural_key["law_key"], record.natural_key["article_key"], record.natural_key["part"])
-        for record in records
-    ]
-    if len(set(natural_keys)) != len(natural_keys):
-        raise HTTPException(status_code=422, detail="청크 파일에 중복된 natural_key가 있습니다.")
+    if not records:
+        raise HTTPException(status_code=422, detail="청크 파일이 비어 있습니다.")
+    if validation is not None:
+        summary = validation.get("summary")
+        expected_count = summary.get("chunks") if isinstance(summary, dict) else None
+        if (
+            isinstance(expected_count, bool)
+            or not isinstance(expected_count, int)
+            or expected_count != len(records)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=f"청크 수가 검증 결과와 일치하지 않습니다 (파일 {len(records)}, 검증 {expected_count}).",
+            )
     collections = {record.collection for record in records}
     if len(collections) != 1:
         raise HTTPException(status_code=422, detail="청크 파일의 collection이 일치하지 않습니다.")
-    law_keys = {record.natural_key["law_key"] for record in records}
-    if len(law_keys) != 1:
-        raise HTTPException(status_code=422, detail="한 번에 하나의 법령 청크 파일만 처리할 수 있습니다.")
-    external_id = next(iter(law_keys))
+    collection = next(iter(collections))
+    expected_collection = {
+        "accidents": "kb_accidents",
+        "guides": "kb_guides",
+    }.get(body.data_type)
+    if expected_collection is not None and collection != expected_collection:
+        raise HTTPException(status_code=422, detail="data_type과 청크 collection이 일치하지 않습니다.")
+    natural_keys = [tuple(sorted(record.natural_key.items())) for record in records]
+    if len(set(natural_keys)) != len(natural_keys):
+        raise HTTPException(status_code=422, detail="청크 파일에 중복된 natural_key가 있습니다.")
+    indexed_records: list[tuple[LocalChunkRecord, str, dict[str, Any]]] = []
+    if collection == "kb_guides":
+        law_keys = {record.natural_key.get("law_key") for record in records}
+        source_types = {record.model_extra.get("source_type") if record.model_extra else None for record in records}
+        if len(law_keys) != 1 or source_types != {"LAW"}:
+            raise HTTPException(status_code=422, detail="법령 청크의 법령 ID 또는 source_type이 일치하지 않습니다.")
+        external_id = next(iter(law_keys))
 
-    index_map_path = input_dir / "chunk_index_map.json"
-    if not index_map_path.is_file():
-        raise HTTPException(status_code=422, detail="chunk_index_map.json이 필요합니다.")
-    try:
-        index_map_data = json.loads(index_map_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=422, detail="chunk_index_map.json을 읽을 수 없습니다.") from exc
-    indexes = index_map_data.get("indexes") if isinstance(index_map_data, dict) else None
-    if (
-        not isinstance(indexes, dict)
-        or index_map_data.get("source_type") != "LAW"
-        or index_map_data.get("external_id") != external_id
-        or any(
-            not isinstance(key, str)
-            or isinstance(value, bool)
-            or not isinstance(value, int)
-            or value < 0
-            for key, value in indexes.items()
+        index_map_path = input_dir / "chunk_index_map.json"
+        if not index_map_path.is_file():
+            raise HTTPException(status_code=422, detail="chunk_index_map.json이 필요합니다.")
+        try:
+            index_map_data = json.loads(index_map_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail="chunk_index_map.json을 읽을 수 없습니다.") from exc
+        indexes = index_map_data.get("indexes") if isinstance(index_map_data, dict) else None
+        if (
+            not isinstance(indexes, dict)
+            or index_map_data.get("source_type") != "LAW"
+            or index_map_data.get("external_id") != external_id
+            or any(
+                not isinstance(key, str)
+                or isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                for key, value in indexes.items()
+            )
+            or len(set(indexes.values())) != len(indexes)
+        ):
+            raise HTTPException(status_code=422, detail="chunk_index_map.json이 법령 또는 인덱스 형식과 맞지 않습니다.")
+
+        for record in records:
+            key = record.natural_key
+            natural_key = f"{key['law_key']}|{key['article_key']}|{key['part']}"
+            chunk_index = indexes.get(natural_key)
+            if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
+                raise HTTPException(status_code=422, detail="청크의 natural_key가 chunk_index_map.json에 없습니다.")
+            point_id = str(uuid5(NAMESPACE_URL, f"LAW:{external_id}:{chunk_index}"))
+            indexed_records.append((record, point_id, record.model_dump()))
+    else:
+        rows = [record.model_dump() for record in records]
+        source_types = {row.get("source_type") for row in rows}
+        datasets = {record.natural_key.get("dataset") for record in records}
+        if source_types != {"SIF"} or datasets != {"sif"}:
+            raise HTTPException(status_code=422, detail="현재 사고 파일 벡터화는 SIF 데이터셋만 지원합니다.")
+        if validation is not None and validation.get("dataset") != "sif":
+            raise HTTPException(status_code=422, detail="사고 validation 파일의 dataset이 sif가 아닙니다.")
+
+        seen_chunk_indexes: set[tuple[str, int]] = set()
+        payload_fields = (
+            "source_type", "site_id", "flagged", "title", "locator", "url", "text",
+            "severity", "accident_type", "hazard", "work_type", "cas", "ghs", "year",
+            "external_id", "chunk_index", "natural_key", "license", "publisher",
+            "content_sha256", "tier", "cate", "disaster_type", "situation",
         )
-        or len(set(indexes.values())) != len(indexes)
-    ):
-        raise HTTPException(status_code=422, detail="chunk_index_map.json이 법령 또는 인덱스 형식과 맞지 않습니다.")
+        for record, row in zip(records, rows):
+            external_id = row.get("external_id")
+            chunk_index = row.get("chunk_index")
+            if (
+                not isinstance(external_id, str)
+                or not external_id.strip()
+                or isinstance(chunk_index, bool)
+                or not isinstance(chunk_index, int)
+                or chunk_index < 0
+            ):
+                raise HTTPException(status_code=422, detail="SIF 청크 external_id 또는 chunk_index가 올바르지 않습니다.")
+            key = (external_id, chunk_index)
+            if key in seen_chunk_indexes:
+                raise HTTPException(status_code=422, detail="SIF 청크 external_id/chunk_index가 중복됩니다.")
+            seen_chunk_indexes.add(key)
 
-    indexed_records: list[tuple[LocalChunkRecord, str]] = []
-    for record in records:
-        key = record.natural_key
-        natural_key = f"{key['law_key']}|{key['article_key']}|{key['part']}"
-        chunk_index = indexes.get(natural_key)
-        if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
-            raise HTTPException(status_code=422, detail="청크의 natural_key가 chunk_index_map.json에 없습니다.")
-        point_id = str(uuid5(NAMESPACE_URL, f"LAW:{external_id}:{chunk_index}"))
-        indexed_records.append((record, point_id))
+            site_id = row.get("site_id")
+            if isinstance(site_id, bool) or not isinstance(site_id, int) or site_id < 0:
+                raise HTTPException(status_code=422, detail="SIF payload.site_id가 올바르지 않습니다.")
+            if not isinstance(row.get("flagged"), bool):
+                raise HTTPException(status_code=422, detail="SIF payload.flagged가 올바르지 않습니다.")
+            if not isinstance(row.get("title"), str) or not row["title"].strip():
+                raise HTTPException(status_code=422, detail="SIF payload.title이 비어 있습니다.")
+            if not isinstance(row.get("locator"), str) or not row["locator"].strip():
+                raise HTTPException(status_code=422, detail="SIF payload.locator가 비어 있습니다.")
+            if row.get("year") is not None and (
+                isinstance(row["year"], bool) or not isinstance(row["year"], int)
+            ):
+                raise HTTPException(status_code=422, detail="SIF payload.year가 올바르지 않습니다.")
+            if row.get("severity") is not None and not isinstance(row["severity"], str):
+                raise HTTPException(status_code=422, detail="SIF payload.severity가 올바르지 않습니다.")
+            for field in ("accident_type", "hazard", "work_type", "cas", "ghs"):
+                values = row.get(field)
+                if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+                    raise HTTPException(status_code=422, detail=f"SIF payload.{field} 형식이 올바르지 않습니다.")
+
+            point_id = str(uuid5(NAMESPACE_URL, f"SIF:{external_id}:{chunk_index}"))
+            payload = {field: row[field] for field in payload_fields if field in row}
+            payload["kb_source_id"] = row.get("kb_source_id")
+            payload["kb_chunk_id"] = row.get("kb_chunk_id")
+            indexed_records.append((record, point_id, payload))
 
     try:
         settings = RagSettings.from_env()
@@ -725,8 +837,8 @@ def save_local_chunk_file_vectors(
                 embeddings = embed_texts(settings, [record.embed_text for record in batch])
                 if len(embeddings) != len(batch):
                     raise RagBackendError("임베딩 서버가 청크 수와 다른 결과를 반환했습니다.")
-                for (record, point_id), embedding in zip(indexed_records[offset : offset + len(batch)], embeddings):
-                    point = make_point(point_id, embedding, record.model_dump())
+                for (record, point_id, payload), embedding in zip(indexed_records[offset : offset + len(batch)], embeddings):
+                    point = make_point(point_id, embedding, payload)
                     output.write(
                         json.dumps(
                             point,
@@ -753,6 +865,7 @@ def save_local_chunk_file_vectors(
         "file": destination.name,
         "collection": next(iter(collections)),
         "model": settings.embedding_model,
+        "validation": "pipeline" if validation is not None else "structural",
     }
 
 
