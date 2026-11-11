@@ -22,7 +22,7 @@ _BINDING_FIELDS = frozenset({"engine", "model_id"})
 
 # SCENARIO_MODELS 표 아래, class Settings 위
 # 통합 채팅창에서 분류할 시나리오 (글자, 쉼표로). A와 F는 함께 넣는다. D·E는 처리기를 붙일 때 자기 글자를 더한다.
-CHAT_SCENARIOS = "A,F"
+CHAT_SCENARIOS = "A,D,F"
 
 # ── 시나리오별 LLM 모델 선택표 ──────────────────────────────────────────────
 # 각 담당자는 자기 시나리오 줄만 고친다. 고친 뒤 서버를 다시 띄우면 적용된다.
@@ -44,8 +44,8 @@ SCENARIO_MODELS: dict[str, dict[str, str]] = {
     "A": {"engine": "WORK_REGISTER", "model_id": "Qwen/Qwen3-0.6B"},  # B · 작업 등록 → 되묻기 → 서류 초안
     # "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-4B"},  # C · 밀폐공간 작업 → 기준 미달 차단
     # "C": {"engine": "NEAR_MISS_WARNING", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
-    # "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-4B"},  # D · 마감 현황·TBM·안전일지 기록 질의
-     "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-1.7B"},  # D · 감사 대응 질의
+    "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-1.7B"},  # D · 마감 현황·TBM·안전일지 기록 질의
+     "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-0.6B"},  # D · 감사 대응 질의
     # "F": {"engine": "SMALL_SITE_GUIDE", "model_id": "모델 이름"},  # B · 소규모 사업장 안내
 }
 

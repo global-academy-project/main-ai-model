@@ -17,6 +17,7 @@ from app.agent.scenario.scenario_dispatch import (
 from app.agent.scenario.scenario_router import LABELS, Scenario
 from app.schemas.agent_chat import AgentChatRequest, AgentChatResponse, ModelInfo
 from app.schemas.agent_work import WorkRegisterResult
+from app.schemas.daily_safety_log import DailySafetyLogResult
 from app.schemas import DataResponse
 
 
@@ -25,7 +26,12 @@ def chat(dispatcher: ScenarioDispatcher, body: AgentChatRequest) -> DataResponse
         message=body.message,
         scenario=Scenario(body.scenario) if body.scenario else None,
         in_progress=Scenario(body.in_progress) if body.in_progress else None,
-        payload={"slots": body.slots, "mode": body.mode, PENDING_TEXT_KEY: body.pending_text},
+        payload={
+            "slots": body.slots,
+            "mode": body.mode,
+            "daily_safety_log": body.daily_safety_log.model_dump() if body.daily_safety_log else None,
+            PENDING_TEXT_KEY: body.pending_text,
+        },
     )
     result = dispatcher.dispatch(request)
     return DataResponse(data=_to_response(result, body))
@@ -56,6 +62,9 @@ def _to_response(result: DispatchResult, body: AgentChatRequest) -> AgentChatRes
         return AgentChatResponse(**common)
 
     output = result.output
+    if isinstance(output, DailySafetyLogResult):
+        model = ModelInfo(**result.model) if result.model else None
+        return AgentChatResponse(**common, model=model, daily_safety_log=output)
     if not isinstance(output, WorkRegisterResult):
         # B가 맡은 A·F만 연결돼 있다. 다른 시나리오 처리기를 등록하면 그 결과 DTO를 여기에 추가한다.
         raise TypeError(f"시나리오 {decision.scenario.value} 처리기의 반환 타입을 응답으로 바꿀 수 없습니다: {type(output).__name__}")

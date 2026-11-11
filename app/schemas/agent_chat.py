@@ -21,6 +21,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from .agent_work import WorkRegisterResult, WorkSlots
+from .daily_safety_log import DailySafetyLogInput, DailySafetyLogResult
 from .base_schemas import CamelModel
 
 ScenarioCode = Literal["A", "D", "E", "F"]
@@ -39,6 +40,7 @@ class AgentChatRequest(CamelModel):
     mode: Literal["VERIFY", "GUIDE"] = Field(
         description="sites.mode (Spring의 AgentRun.mode). 작업 등록은 VERIFY → A, GUIDE → F로 정해진다"
     )
+    daily_safety_log: DailySafetyLogInput | None = None
 
     @model_validator(mode="after")
     def _scenario_or_in_progress(self) -> AgentChatRequest:
@@ -66,3 +68,4 @@ class AgentChatResponse(CamelModel):
     redirect: str | None = Field(default=None, description="채팅 범위 밖이라 전용 화면으로 안내할 시나리오")
     model: ModelInfo | None = Field(default=None, description="처리에 쓴 엔진·모델 (진단용)")
     result: WorkRegisterResult | None = None
+    daily_safety_log: DailySafetyLogResult | None = None
