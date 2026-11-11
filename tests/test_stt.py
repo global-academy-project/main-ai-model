@@ -116,3 +116,21 @@ def test_route_returns_spring_shape():
     app.dependency_overrides[get_transcriber] = lambda: WhisperTranscriber(None)
     res = http.post("/api/v1/stt/transcribe", files={"file": ("voice", b"webm-bytes", "audio/webm")})
     assert res.status_code == 503 and res.json()["success"] is False
+
+
+def test_model_name_comes_from_setting():
+    fake = FakeWhisper(["산소 이십 점 구"])
+    out = transcribe_audio(WhisperTranscriber(None, model=fake, name="whisper-small-ko"), b"audio", "ko")
+    assert out.data.model == "whisper-small-ko"   # 실제 쓰는 모델 이름이 응답·기록에 남는다
+    assert WhisperTranscriber(None).name == "whisper-small"   # 설정이 없으면 지금과 같은 이름
+
+
+def test_route_builds_transcriber_with_model_name():
+    from app.api.v1.agent.stt import _transcribers, get_transcriber
+
+    settings = SimpleNamespace(stt_model_path=None, stt_compute_type="int8", stt_threads=None, stt_beam_size=1,
+                               stt_max_seconds=35.0, stt_model_name="whisper-small-ko")
+    try:
+        assert get_transcriber(settings).name == "whisper-small-ko"
+    finally:
+        _transcribers.clear()

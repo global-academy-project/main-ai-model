@@ -12,7 +12,7 @@ import re
 from app.exceptions import BusinessError
 from app.schemas.base_schemas import DataResponse
 from app.schemas.stt import SttTranscript
-from app.stt.whisper import MODEL_NAME, BadAudio, SttUnavailable, TooLong, WhisperTranscriber
+from app.stt.whisper import BadAudio, SttUnavailable, TooLong, WhisperTranscriber
 
 log = logging.getLogger(__name__)
 
@@ -33,4 +33,4 @@ def transcribe_audio(transcriber: WhisperTranscriber, data: bytes, language: str
     except Exception as exc:  # noqa: BLE001 - 모델 실행 오류는 원문을 로그에만
         log.error("STT 실패", exc_info=exc)
         raise BusinessError(code="BAD_GATEWAY", message="음성 인식에 실패했습니다.", status_code=502) from exc
-    return DataResponse[SttTranscript](data=SttTranscript(text=result.text, language=result.language, model=MODEL_NAME))
+    return DataResponse[SttTranscript](data=SttTranscript(text=result.text, language=result.language, model=transcriber.name))

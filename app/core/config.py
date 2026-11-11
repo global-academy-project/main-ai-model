@@ -105,8 +105,10 @@ class Settings(BaseSettings):
     vision_threads: int | None = Field(default=None, ge=1, le=64)        # ONNX CPU 스레드 수. 비우면 onnxruntime 기본 (1.7B 생성과 CPU 를 나눠 쓸 때 줄인다)
 
     # 음성 → 글 (C, Whisper small 을 faster-whisper 로). 모델 폴더는 로컬만 읽는다 (scripts/download_models.py --only stt).
-    #   STT_MODEL_PATH 예) /models/whisper-small. 비우거나 폴더가 없으면 /api/v1/stt/* 는 503 (Spring 은 "직접 적어 주세요")
+    #   STT_MODEL_PATH 예) /models/whisper-small-ko. 비우거나 폴더가 없으면 /api/v1/stt/* 는 503 (Spring 은 "직접 적어 주세요")
     stt_model_path: str | None = None
+    # 응답·기록에 남길 모델 이름 (STT_MODEL_PATH 폴더의 모델과 맞춘다). 한국어 모델이면 whisper-small-ko (download_models 출력 그대로)
+    stt_model_name: str = Field(default="whisper-small", min_length=1, max_length=100)
     stt_compute_type: Literal["int8", "int8_float32", "float32"] = "int8"   # CPU: int8 이 빠르고 메모리가 적다
     stt_threads: int | None = Field(default=None, ge=1, le=64)              # CPU 스레드 수. 비우면 faster-whisper 기본
     stt_beam_size: int = Field(default=1, ge=1, le=5)                        # 1 이 가장 빠름. 정확도가 부족하면 늘린다
