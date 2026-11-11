@@ -23,7 +23,7 @@ class RuleInputExtractRequest(CamelModel):
 class ExtractedMeasurement(CamelModel):
     item: str
     value: float = Field(description="원문에 적힌 숫자 그대로")
-    unit: Literal["PCT", "PPM", "PCT_LEL"]
+    unit: Literal["PCT", "PPM", "PCT_LEL"] | None = Field(description="원문에 적힌 단위. 없으면 null (Spring 이 항목 단위로 채움)")
     evidence: str = Field(description="값이 나온 원문 부분 (원문 그대로)")
 
 

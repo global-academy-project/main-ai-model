@@ -23,3 +23,7 @@ CHANGELOG.md
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+#### Training data and LoRA adapters (not in the image; mount as a volume at runtime)
+data/
+adapters/

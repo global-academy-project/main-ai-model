@@ -15,8 +15,9 @@ requests==2.34.2            # 벡터 db 연결 확인용
 PyYAML==6.0.3               # YAML 파일을 파이썬 딕셔너리로 읽고 쓰는 라이브러리
 qdrant-client==1.20.0       # Qdrant 서버를 파이썬 코드로 다루는 공식 클라이언트
 
-# --- 사진 인식·파일 받기 (C) ---
+# --- 사진 인식·음성·파일 받기·LoRA 어댑터 (C) ---
 onnxruntime==1.31.1         # YOLOX-Nano ONNX 실행 (CPU)
 python-multipart==0.0.32    # FastAPI 파일 업로드(multipart) 받기 (사진·녹음)
 faster-whisper==1.2.1       # Whisper small 음성 → 글 (CPU int8, CTranslate2·PyAV 같이 설치, 시스템 ffmpeg 불필요)
 av==18.1.0                  # faster-whisper 가 녹음을 풀 때 씀. PyAV 19 는 faster-whisper 1.2.1 과 안 맞음 (metadata_errors) → 올리지 말 것
+peft==0.21.2                # LoRA 어댑터 붙이기 (문장 추출 extract 등, LLM_ADAPTERS). Colab 학습과 같은 버전으로
