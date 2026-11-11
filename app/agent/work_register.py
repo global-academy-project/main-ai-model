@@ -57,7 +57,10 @@ from app.schemas.agent_work import (
 from . import drafting
 from .done_message import build_done_message
 from .evidence_collector import MAX_SUMMARY_CHARS, EvidenceCollector, EvidencePack, StepRecord, WorkContext
+from .plan_brief import MSDS_FIRST, PLAN_MODE, StagedCollector
 from .judgment import JudgeInput, judge, verify
+from .judgment_pick import JUDGMENT_MODE, PICK_MAX_TOKENS, judge_pick
+from .judgment_code import JUDGMENT_CODE, judge_code
 from .slots import ask_message, full_text, merge_slots, missing_fields, with_asked
 from .text_rules import sentences
 from ..tools.tool_contract import ToolInvoker
@@ -135,9 +138,12 @@ class WorkRegisterAgent:
             )
 
         # ② 근거 수집
-        collector = EvidenceCollector(
+        msds_issues: list[VerificationIssue] = []  # MSDS_FIRST일 때 근거 검색 앞의 물질 조회에서 생긴 확인 항목
+        collector = StagedCollector(
             llm=self._llm, tools=tools, k=self._k, max_requery_rounds=self._max_requery_rounds,
             max_tokens=self._plan_max_tokens, on_step=log.evidence,
+            brief=PLAN_MODE == "brief",  # 계획 LLM은 작업·공구·물질만, 검색 질의는 코드 (plan_brief.py). "full"이면 이전 방식
+            lookup_msds=(lambda materials: self._lookup_msds(tools, materials, msds_issues)) if MSDS_FIRST else None,
         )
         pack = collector.collect(
             WorkContext(
@@ -159,8 +165,9 @@ class WorkRegisterAgent:
                 message=f"검색 계획 단계가 {', '.join(extra_types)} 작업 요소를 추가로 봤습니다. 허가 종류는 classify_work 결과만 따르니 확인하세요.",
             ))
 
-        # ③ 물질 조회
-        msds = self._lookup_msds(tools, pack.materials, issues)
+        issues += msds_issues
+        # ③ 물질 조회 (MSDS_FIRST면 계획 뒤 근거 검색 앞에서 이미 했다)
+        msds = collector.msds if collector.msds is not None else self._lookup_msds(tools, pack.materials, issues)
 
         # ④ 판단
         started = time.perf_counter()
@@ -169,9 +176,17 @@ class WorkRegisterAgent:
             text=text, summary=summary, work_types=classification.work_types, location=slots.location,
             hot_work_kind=slots.hot_work_kind, materials=pack.materials, equipment=slots.equipment, pack=pack, msds=msds,
         )
-        hazards, judgment_source, dropped = judge(self._llm, inp, max_tokens=self._judge_max_tokens)
+        if JUDGMENT_CODE:  # 위험요인마다 다시 검색해 코드가 근거를 고른다. LLM 없음 (judgment_code.py). False면 아래 방식
+            hazards, judgment_source, dropped = judge_code(tools, inp)
+            judged_by = {"mode": "code"}
+        elif JUDGMENT_MODE == "pick":  # 위험요인은 코드, LLM은 근거 번호만 (judgment_pick.py). "full"이면 이전 방식
+            hazards, judgment_source, dropped = judge_pick(self._llm, inp, max_tokens=PICK_MAX_TOKENS)
+            judged_by = {"mode": "pick"}
+        else:
+            hazards, judgment_source, dropped = judge(self._llm, inp, max_tokens=self._judge_max_tokens)
+            judged_by = {}
         log.phase("judgment", {"evidence_items": len(pack.items), "msds": len(msds)},
-                  {"source": judgment_source, "hazards": [h.hazard for h in hazards]}, started)
+                  {"source": judgment_source, "hazards": [h.hazard for h in hazards], **judged_by}, started)
 
         # ⑤ 규칙 판정
         rule_check, raw_by_permit = self._check_rules(

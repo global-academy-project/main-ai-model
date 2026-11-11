@@ -317,4 +317,6 @@ class ScenarioDispatcher:
         if request.in_progress is not None:
             return continuation(request.in_progress), request.message  # 분류 모델 없이 이어 간다
         text = join_pending_text(request.payload.get(PENDING_TEXT_KEY), request.message)
-        return self._classifier.classify(text).decision, text
+        mode = request.payload.get(_MODE_PAYLOAD_KEY)  # 현장 모드는 시나리오 판단 규칙이 쓴다 (scenario_policy.py)
+        options = {} if mode is None else {"mode": mode}
+        return self._classifier.classify(text, **options).decision, text

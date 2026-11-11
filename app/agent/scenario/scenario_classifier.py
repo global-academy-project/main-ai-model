@@ -17,6 +17,7 @@ from app.llm.llm_provider import ROUTER_KEY, EngineBinding, LLMClientProvider
 
 from ..evidence_collector.models import SearchFailure
 from .scenario_retriever import Reference, ReferenceRetriever
+from .scenario_policy import decide
 from .scenario_router import MAX_REFERENCES_IN_PROMPT, Scenario, ScenarioDecision, ScenarioRouter
 
 
@@ -43,9 +44,19 @@ class ScenarioClassifier:
         self._retriever = retriever
         self._chat_scenarios = None if chat_scenarios is None else tuple(chat_scenarios)
 
-    def classify(self, message: str, *, use_rag: bool = True) -> ClassificationResult:
+    def classify(self, message: str, *, use_rag: bool = True, mode: str | None = None) -> ClassificationResult:
         """`use_rag=False`면 검색하지 않고 분류한다 (참고 자료 효과를 비교할 때)."""
         text = (message or "").strip()
+        if (ruled := decide(text, mode=mode, allowed=self._chat_scenarios)) is not None:
+            # 규칙(scenario_policy.py)이 정했으면 검색도 모델도 부르지 않는다
+            return ClassificationResult(
+                decision=ruled,
+                classifier_model=self._provider.binding_for(ROUTER_KEY),
+                scenario_model=(
+                    None if ruled.scenario is Scenario.UNKNOWN else self._provider.binding_for(ruled.scenario.value)
+                ),
+                rag_used=False,
+            )
         rag = use_rag and self._retriever is not None and bool(text)
         found = self._retriever.retrieve(text) if rag else None
         references = found.references if found else ()
