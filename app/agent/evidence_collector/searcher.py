@@ -19,7 +19,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 from .models import EvidenceItem, SearchFailure, SearchQuery, SearchToolOutput, ToolHit
 from .recorder import StepEmitter
-from .vocab import Corpus
+from .vocab import Corpus, expand_search_query
 from app.exceptions import ToolError
 from app.tools.tool_contract import ToolInvoker
 
@@ -73,9 +73,16 @@ class Searcher:
             state.done.add((q.corpus, q.query))
             state.attempts += 1
             corpus = self._corpora[q.corpus]
-            ran.append({"corpus": q.corpus, "tool": corpus.tool, "query": q.query, "purpose": q.purpose})
+            expanded_query = expand_search_query(q.query)
+            ran.append({
+                "corpus": q.corpus,
+                "tool": corpus.tool,
+                "query": q.query,
+                "expanded_query": expanded_query,
+                "purpose": q.purpose,
+            })
             try:
-                hits = self._call(corpus, q.query)
+                hits = self._call(corpus, expanded_query)
             except ToolError as exc:
                 logger.warning(
                     "근거 검색 실패: round=%s corpus=%s tool=%s code=%s", round_no, q.corpus, corpus.tool, exc.code, exc_info=exc
