@@ -6,7 +6,7 @@
 
 Spring 은 APP_PHOTO_VISION_CLIENT=fastapi 일 때만 부른다 (대기 기본 20초). 박스 좌표는 EXIF 회전을 적용한 사진 기준 0~1 비율.
 모델 파일: VISION_MODEL_PATH (scripts/download_models.py 로 미리 받아 둔다. 서버는 내려받지 않는다).
-multipart 를 받으려면 python-multipart 패키지가 필요하다 (없으면 main.py 가 이 경로를 붙이지 않고 경고만 남긴다).
+multipart 를 받으려면 python-multipart 패키지가 필요하다 (requirements.txt).
 """
 
 from __future__ import annotations

@@ -1,12 +1,12 @@
 """Spring 이 부르는 음성 → 글 경로 (라우터만, C 담당). 녹음은 저장하지 않는다.
 
     POST /api/v1/stt/transcribe   multipart: file(녹음), language(기본 ko)
-        성공 200  {success: true, data: {text, language, model: "whisper-small"}}
+        성공 200  {success: true, data: {text, language, model}}   model = STT_MODEL_NAME (기본 whisper-small)
         실패      {success: false, error: {...}} (모델 없음 503, 녹음 문제 422, 실행 실패 502)
 
 Spring 은 APP_STT_CLIENT=fastapi 일 때만 부른다 (대기 기본 30초, 녹음 최대 30초·2MB).
 모델 폴더: STT_MODEL_PATH (scripts/download_models.py --only stt 로 미리 받아 둔다. 서버는 내려받지 않는다).
-multipart 를 받으려면 python-multipart 가 필요하다 (없으면 main.py 가 이 경로를 붙이지 않고 경고만 남긴다).
+multipart 를 받으려면 python-multipart 가 필요하다 (requirements.txt).
 """
 
 from __future__ import annotations
@@ -32,12 +32,12 @@ _transcribers: dict[tuple, WhisperTranscriber] = {}
 def get_transcriber(settings: Annotated[Settings, Depends(get_settings)]) -> WhisperTranscriber:
     """설정이 같으면 같은 모델을 쓴다 (처음 쓸 때 한 번 읽음)."""
     key = (settings.stt_model_path, settings.stt_compute_type, settings.stt_threads, settings.stt_beam_size,
-           settings.stt_max_seconds)
+           settings.stt_max_seconds, settings.stt_model_name)
     transcriber = _transcribers.get(key)
     if transcriber is None:
         transcriber = _transcribers.setdefault(key, WhisperTranscriber(
             settings.stt_model_path, compute_type=settings.stt_compute_type, threads=settings.stt_threads,
-            beam_size=settings.stt_beam_size, max_seconds=settings.stt_max_seconds))
+            beam_size=settings.stt_beam_size, max_seconds=settings.stt_max_seconds, name=settings.stt_model_name))
     return transcriber
 
 

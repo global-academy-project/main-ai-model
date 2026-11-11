@@ -18,7 +18,7 @@ from .normalize import normalize
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "whisper-small"
+MODEL_NAME = "whisper-small"   # 기본 이름. 실제 이름은 설정 STT_MODEL_NAME (WhisperTranscriber.name)
 # 받아 적을 때 이 표기 쪽으로 기울게 하는 예시 문장 (값을 넣는 것이 아니라 표기 힌트)
 INITIAL_PROMPT = "산소 20.9%, 탄산가스 0.5%, 일산화탄소 5ppm, 황화수소 3ppm, 가연성가스 LEL 0%, 암모니아, 염소, 감시인 김도윤."
 
@@ -44,8 +44,9 @@ class Transcript:
 
 class WhisperTranscriber:
     def __init__(self, model_path: str | None, *, compute_type: str = "int8", threads: int | None = None,
-                 beam_size: int = 1, max_seconds: float = 35.0, model: Any = None) -> None:
+                 beam_size: int = 1, max_seconds: float = 35.0, model: Any = None, name: str = MODEL_NAME) -> None:
         self.model_path = model_path
+        self.name = name   # 응답 model 에 그대로 나간다
         self.compute_type = compute_type
         self.threads = threads
         self.beam_size = beam_size
