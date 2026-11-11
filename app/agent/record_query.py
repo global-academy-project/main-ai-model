@@ -6,8 +6,9 @@ import json
 import logging
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from app.agent.evidence_collector.textutil import extract_json_object
@@ -27,6 +28,14 @@ from app.schemas.record_query import (
 logger = logging.getLogger(__name__)
 
 SearchRecords = Callable[[Mapping[str, Any]], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class PlanOutcome:
+    decision: Literal["QUERY", "CLARIFY", "OUT_OF_SCOPE"]
+    query_type: str | None = None
+    params: dict[str, Any] | None = None
+    reason: str | None = None
 
 QUERY_PARAMS: dict[str, frozenset[str]] = {
     "missing_measurements": frozenset({"permitType"}),
@@ -56,26 +65,47 @@ QUERY_LABELS = {
     "blocked_records": "차단 판정 기록",
 }
 
-_SYSTEM_PROMPT = """너는 산업안전 기록 질문을 정형 조회 계획으로 바꾸는 계획자다.
-반드시 JSON 객체 하나만 출력한다. SQL, siteId, agentRunId, 총 건수, 기록 ID는 만들지 않는다.
-출력 형식: {"queryType":"허용 유형", "params":{"from":"YYYY-MM-DD", "to":"YYYY-MM-DD"}}
-from과 to는 양 끝을 포함하며 항상 필요하고 최대 366일이다. 상대 날짜는 제공된 오늘 날짜를 기준으로 계산한다.
-질문이 이전 조회를 이어 묻는 경우 이전 context의 queryType과 params를 참고한다.
-지원할 수 없거나 기간을 결정할 정보가 전혀 없으면 {"needsClarification":true}를 출력한다.
+_OUT_OF_SCOPE_TERMS = (
+    "날씨", "점심", "메뉴", "요리", "번역", "농담", "주식", "환율", "스포츠", "영화", "음악",
+)
 
-허용 유형과 추가 조건:
-- missing_measurements: permitType
-- permit_approval_statistics: permitType
-- pending_approvals: targetType, stepNo
-- rejected_revisions: targetType
-- open_corrective_actions: status
-- failed_inspections: zoneId, templateCode
-- missing_tbm: workType, zoneId
-- risk_assessment_rate: workType
-- approver_statistics: approverId
-- record_change_history: recordType, recordId, userId
-- blocked_records: permitType
-목록에 없는 조건은 넣지 않는다."""
+_SYSTEM_PROMPT = """너는 저장된 산업안전 공식 기록을 조회하기 위한 계획자다.
+질문을 임의로 답하지 말고 반드시 JSON 객체 하나만 출력한다.
+
+decision은 다음 중 하나다.
+- QUERY: 지원하는 기록 조회로 변환할 수 있고 기간도 결정할 수 있음
+- CLARIFY: 산업안전 기록 질문이지만 기록 종류나 기간 등 필수 정보가 부족함
+- OUT_OF_SCOPE: 산업안전 공식 기록 조회와 관계없는 질문
+
+출력 형식:
+- QUERY: {"decision":"QUERY","queryType":"허용 유형","params":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}}
+- CLARIFY: {"decision":"CLARIFY","reason":"부족한 정보"}
+- OUT_OF_SCOPE: {"decision":"OUT_OF_SCOPE","reason":"범위 밖인 이유"}
+
+SQL, siteId, agentRunId, 총 건수, 기록 ID를 만들지 않는다.
+from과 to는 양 끝을 포함하며 QUERY일 때 항상 필요하고 최대 366일이다.
+상대 날짜는 제공된 오늘 날짜를 기준으로 계산한다. 질문이 이전 조회를 이어 묻는 경우 이전 context를 참고한다.
+
+허용 유형과 의미·추가 조건:
+- missing_measurements: 가스측정값이 누락된 작업허가, permitType
+- permit_approval_statistics: 작업허가 승인 통계, permitType
+- pending_approvals: 승인 대기 기록, targetType, stepNo
+- rejected_revisions: 반려 후 수정 기록, targetType
+- open_corrective_actions: 미완료 시정조치, status
+- failed_inspections: 부적합 점검 기록, zoneId, templateCode
+- missing_tbm: TBM 미실시·누락 기록, workType, zoneId
+- risk_assessment_rate: 위험성평가 실시 현황, workType
+- approver_statistics: 승인자 처리 통계, approverId
+- record_change_history: 기록 변경 이력, recordType, recordId, userId
+- blocked_records: 차단 판정 기록, permitType
+
+목록에 없는 조건은 넣지 않는다. 질문 표현과 가장 가까운 유형이 명확할 때만 QUERY를 선택한다.
+예시:
+- "지난달 가스측정값이 빠진 화기허가" → missing_measurements, permitType HOT
+- "이번 주 승인 대기 문서" → pending_approvals
+- "TBM 안 한 작업"처럼 기간이 없고 이전 context에도 기간이 없으면 CLARIFY
+- "오늘 날씨 알려줘" → OUT_OF_SCOPE
+"""
 
 
 class RecordQueryAgent:
@@ -92,34 +122,43 @@ class RecordQueryAgent:
             steps.append(self._error_step("PHASE", "query.plan", exc, plan_started))
             raise AgentRunError(exc, steps=steps) from exc
 
-        if plan is None:
+        if plan.decision != "QUERY":
+            if plan.decision == "OUT_OF_SCOPE":
+                message = (
+                    "산업안전 공식 기록에 관한 질문만 조회할 수 있습니다. "
+                    "작업허가, 위험성평가, TBM, 점검, 승인 또는 시정조치 기록을 질문해 주세요."
+                )
+            elif plan.reason:
+                message = f"조회 조건을 더 알려 주세요. {plan.reason}"
+            else:
+                message = "조회할 기록 종류와 기간을 알려 주세요. 예: 지난달 가스측정값 누락 기록"
             return RecordQueryResult(
                 run_status="WAITING_INPUT",
-                ask=RecordQueryAsk(
-                    message="조회할 기록 종류와 기간을 알려 주세요. 예: 지난달 가스측정값 누락 기록"
-                ),
+                ask=RecordQueryAsk(message=message),
                 context={"previousQuestion": request.message, **(request.context or {})},
             )
+
+        plan_data = {"queryType": plan.query_type, "params": plan.params}
 
         steps.append(
             self._ok_step(
                 "PHASE",
                 "query.plan",
                 {"message": request.message},
-                plan,
+                plan_data,
                 plan_started,
             )
         )
         tool_input = {
             "run_id": request.run_id,
             "site_id": request.site_id,
-            "query_type": plan["queryType"],
-            "params": plan["params"],
+            "query_type": plan.query_type,
+            "params": plan.params,
         }
         tool_started = time.perf_counter()
         try:
             raw = self._search_records(tool_input)
-            validated = self._validate_result(raw, request=request, plan=plan)
+            validated = self._validate_result(raw, request=request, plan=plan_data)
         except ToolError as exc:
             steps.append(self._error_step("TOOL", "search_records", exc, tool_started, tool_input))
             self._renumber(steps)
@@ -130,7 +169,7 @@ class RecordQueryAgent:
             self._ok_step(
                 "TOOL",
                 "search_records",
-                {"queryType": plan["queryType"], "params": plan["params"]},
+                {"queryType": plan.query_type, "params": plan.params},
                 {"total": query.total, "truncated": query.truncated},
                 tool_started,
             )
@@ -153,14 +192,22 @@ class RecordQueryAgent:
             queries=[query],
             evidence=evidence,
             context={
-                "lastQueryType": plan["queryType"],
-                "lastParams": plan["params"],
+                "lastQueryType": plan.query_type,
+                "lastParams": plan.params,
                 "lastQuestion": request.message,
             },
             steps=steps,
         )
 
-    def _plan(self, request: RecordQueryRequest) -> dict[str, Any] | None:
+    @staticmethod
+    def _is_obviously_out_of_scope(message: str) -> bool:
+        normalized = message.strip().lower()
+        return any(term in normalized for term in _OUT_OF_SCOPE_TERMS)
+
+    def _plan(self, request: RecordQueryRequest) -> PlanOutcome:
+        if self._is_obviously_out_of_scope(request.message):
+            return PlanOutcome(decision="OUT_OF_SCOPE", reason="산업안전 공식 기록 조회와 관련이 없습니다.")
+
         today = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
         previous = json.dumps(request.context, ensure_ascii=False) if request.context else "없음"
         response = self._llm.chat(
@@ -169,25 +216,40 @@ class RecordQueryAgent:
                     role="user",
                     content=(
                         f"오늘: {today}\n현장 모드: {request.mode}\n"
-                        f"이전 context: {previous}\n질문: {request.message}"
+                        f"<previous_context>{previous}</previous_context>\n"
+                        f"<question>{request.message}</question>"
                     ),
                 )
             ],
             system=_SYSTEM_PROMPT,
-            max_tokens=350,
+            max_tokens=180,
         )
         if response.stop_reason == "max_tokens":
-            return None
+            return PlanOutcome(decision="CLARIFY", reason="질문을 짧고 구체적으로 다시 입력해 주세요.")
         raw = extract_json_object(response.text or "")
-        if not raw or raw.get("needsClarification") is True:
-            return None
+        if not raw:
+            return PlanOutcome(decision="CLARIFY", reason="기록 종류와 조회 기간을 확인할 수 없습니다.")
+
+        # 이전 계획 응답과의 호환성을 유지한다.
+        if raw.get("needsClarification") is True:
+            return PlanOutcome(decision="CLARIFY", reason="기록 종류와 조회 기간을 알려 주세요.")
+        decision = raw.get("decision")
+        if decision == "OUT_OF_SCOPE":
+            reason = raw.get("reason") if isinstance(raw.get("reason"), str) else None
+            return PlanOutcome(decision="OUT_OF_SCOPE", reason=reason)
+        if decision == "CLARIFY":
+            reason = raw.get("reason") if isinstance(raw.get("reason"), str) else None
+            return PlanOutcome(decision="CLARIFY", reason=reason)
+        if decision not in (None, "QUERY"):
+            return PlanOutcome(decision="CLARIFY", reason="지원하는 기록 조회인지 확인할 수 없습니다.")
+
         query_type = raw.get("queryType")
         params = raw.get("params")
         if query_type not in QUERY_PARAMS or not isinstance(params, dict):
-            return None
+            return PlanOutcome(decision="CLARIFY", reason="조회할 기록 종류와 기간을 알려 주세요.")
         if not self._valid_params(query_type, params):
-            return None
-        return {"queryType": query_type, "params": params}
+            return PlanOutcome(decision="CLARIFY", reason="조회 기간을 시작일과 종료일로 알려 주세요.")
+        return PlanOutcome(decision="QUERY", query_type=query_type, params=params)
 
     @staticmethod
     def _valid_params(query_type: str, params: dict[str, Any]) -> bool:

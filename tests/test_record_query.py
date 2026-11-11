@@ -22,7 +22,10 @@ def request(**overrides) -> RecordQueryRequest:
 
 def plan(query_type="missing_measurements", params=None):
     params = params or {"from": "2026-10-01", "to": "2026-10-31", "permitType": "HOT"}
-    return text_response(f'{{"queryType":"{query_type}","params":{__import__("json").dumps(params)}}}')
+    return text_response(
+        f'{{"decision":"QUERY","queryType":"{query_type}",'
+        f'"params":{__import__("json").dumps(params)}}}'
+    )
 
 
 def result(total=1):
@@ -114,3 +117,49 @@ def test_follow_up_context_is_given_to_planner():
     prompt = llm.calls[0]["messages"][0].content
     assert "lastQueryType" in prompt
     assert "missing_tbm" in prompt
+
+
+def test_obviously_out_of_scope_does_not_call_llm_or_search():
+    called = False
+
+    def search(_):
+        nonlocal called
+        called = True
+        return result()
+
+    llm = FakeLLMClient([])
+    response = RecordQueryAgent(llm=llm, search_records=search).run(
+        request(message="오늘 날씨 알려줘")
+    )
+
+    assert response.run_status == "WAITING_INPUT"
+    assert response.ask is not None
+    assert "산업안전 공식 기록" in response.ask.message
+    assert llm.calls == []
+    assert not called
+
+
+def test_missing_period_asks_only_for_more_information():
+    llm_response = text_response(
+        '{"decision":"CLARIFY","reason":"조회할 기간을 알려 주세요."}'
+    )
+    response = RecordQueryAgent(
+        llm=FakeLLMClient([llm_response]), search_records=lambda _: result()
+    ).run(request(message="TBM을 안 한 작업을 알려줘"))
+
+    assert response.run_status == "WAITING_INPUT"
+    assert response.ask is not None
+    assert "조회할 기간" in response.ask.message
+
+
+def test_legacy_plan_output_remains_compatible():
+    legacy = text_response(
+        '{"queryType":"missing_measurements","params":'
+        '{"from":"2026-10-01","to":"2026-10-31","permitType":"HOT"}}'
+    )
+    response = RecordQueryAgent(
+        llm=FakeLLMClient([legacy]), search_records=lambda _: result()
+    ).run(request())
+
+    assert response.run_status == "DONE"
+    assert response.queries[0].query_type == "missing_measurements"
