@@ -6,12 +6,14 @@ from typing import Any
 from urllib.parse import quote
 
 from .config import RagSettings
+from .embedding import HybridEmbedding
 from .errors import RagBackendError
 from .filters import COLLECTIONS
-from .http import delete_json, post_json, put_json
+from .http import post_json, put_json
 
 _PAYLOAD_FIELDS = [
     "kb_source_id",
+    "kb_chunk_id",
     "source_type",
     "site_id",
     "title",
@@ -23,12 +25,19 @@ _PAYLOAD_FIELDS = [
 
 def make_point(
     point_id: str | int,
-    embedding: list[float],
+    embedding: HybridEmbedding | list[float],
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
+    dense = embedding.dense if isinstance(embedding, HybridEmbedding) else embedding
+    vector: dict[str, Any] = {"dense": dense}
+    if isinstance(embedding, HybridEmbedding) and embedding.sparse.indices:
+        vector["sparse"] = {
+            "indices": embedding.sparse.indices,
+            "values": embedding.sparse.values,
+        }
     return {
         "id": point_id,
-        "vector": {"dense": embedding},
+        "vector": vector,
         "payload": dict(payload),
     }
 
@@ -80,14 +89,14 @@ def delete_points(
 
     url = (
         f"{settings.qdrant_url}/collections/"
-        f"{quote(collection, safe='')}/points?wait=true"
+        f"{quote(collection, safe='')}/points/delete?wait=true"
     )
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
         "api-key": write_api_key,
     }
-    response = delete_json(
+    response = post_json(
         url,
         {"points": list(point_ids)},
         headers,
@@ -101,7 +110,7 @@ def delete_points(
 def query_points(
     settings: RagSettings,
     collection: str,
-    vector: list[float],
+    vector: HybridEmbedding | list[float],
     conditions: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, Any]]:
@@ -113,15 +122,42 @@ def query_points(
     if settings.qdrant_api_key:
         headers["api-key"] = settings.qdrant_api_key
 
-    response = post_json(
-        url,
-        {
-            "query": vector,
+    if isinstance(vector, HybridEmbedding) and vector.sparse.indices:
+        query = {
+            "prefetch": [
+                {
+                    "query": vector.dense,
+                    "using": "dense",
+                    "filter": {"must": conditions},
+                    "limit": limit,
+                },
+                {
+                    "query": {
+                        "indices": vector.sparse.indices,
+                        "values": vector.sparse.values,
+                    },
+                    "using": "sparse",
+                    "filter": {"must": conditions},
+                    "limit": limit,
+                },
+            ],
+            "query": {"fusion": "rrf"},
+            "limit": limit,
+            "with_payload": _PAYLOAD_FIELDS,
+        }
+    else:
+        dense = vector.dense if isinstance(vector, HybridEmbedding) else vector
+        query = {
+            "query": dense,
             "using": "dense",
             "filter": {"must": conditions},
             "limit": limit,
             "with_payload": _PAYLOAD_FIELDS,
-        },
+        }
+
+    response = post_json(
+        url,
+        query,
         headers,
         settings.timeout_seconds,
         "Qdrant",

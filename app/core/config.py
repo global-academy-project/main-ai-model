@@ -42,7 +42,7 @@ SCENARIO_MODELS: dict[str, dict[str, str]] = {
     "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # 아래에서 고르지 않은 것 전부
     "router": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # B · 시나리오 분류 (채팅 접수)
     "A": {"engine": "WORK_REGISTER", "model_id": "Qwen/Qwen3-0.6B"},  # B · 작업 등록 → 되묻기 → 서류 초안
-    # "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-4B"},  # C · 밀폐공간 작업 → 기준 미달 차단
+    "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-0.6B"},  # C · 밀폐공간 작업 → 기준 미달 차단 (문장 추출. E와 같은 1.7B를 같이 씀, 어댑터 extract)
     # "C": {"engine": "NEAR_MISS_WARNING", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
     "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-1.7B"},  # D · 마감 현황·TBM·안전일지 기록 질의
      "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-0.6B"},  # D · 감사 대응 질의
@@ -87,6 +87,30 @@ class Settings(BaseSettings):
     scenario_engines: dict[str, dict[str, str]] = Field(
         default_factory=lambda: {key: dict(binding) for key, binding in SCENARIO_MODELS.items()}
     )
+
+    # LoRA 어댑터 이름 → 로컬 폴더 (env LLM_ADAPTERS, JSON 한 줄). 비우면 어댑터 없이 기본 모델만 쓴다 (기본값).
+    #   .env 예) LLM_ADAPTERS={"extract": "/models/adapters/extract", "record_query": "/models/adapters/record_query"}
+    #   Windows 경로는 슬래시로 적는다 (예: "D:/models/adapters/extract"). 역슬래시는 JSON 에서 \\ 로 두 번 적어야 한다.
+    # - 이름은 엔진 클래스의 adapter 와 짝을 맞춘다 (app/llm/engines/llm_<시나리오>.py 의 "LoRA 어댑터" 주석에 쓰는 순서가 있다).
+    # - 어댑터는 머지하지 않고 같은 기본 모델 위에 붙여 쓴다. 학습한 기본 모델(같은 model_id·같은 버전)과 같아야 한다.
+    # - 어댑터를 새로 넣거나 바꾸면 서버를 다시 띄운다 (처음 쓸 때 한 번만 읽는다).
+    llm_adapters: dict[str, str] = Field(default_factory=dict)
+
+    # 사진 인식 (C, TBM 사진 사람 수). 모델 파일은 로컬 경로만 읽는다 (scripts/download_models.py 로 미리 받아 둔다).
+    #   VISION_MODEL_PATH 예) /models/yolox/yolox_nano.onnx. 비우거나 파일이 없으면 /api/v1/vision/* 는 503 (Spring 은 파일 정보 확인만 하고 계속)
+    vision_model_path: str | None = None
+    vision_input_size: int = Field(default=416, ge=64, le=1280)          # YOLOX-Nano 입력 크기 (공식 416)
+    vision_score_threshold: float = Field(default=0.4, gt=0, lt=1)       # 이 점수 미만 사람 박스는 버림
+    vision_nms_threshold: float = Field(default=0.45, gt=0, lt=1)        # 이보다 많이 겹치면 점수 높은 박스만 남김
+    vision_threads: int | None = Field(default=None, ge=1, le=64)        # ONNX CPU 스레드 수. 비우면 onnxruntime 기본 (1.7B 생성과 CPU 를 나눠 쓸 때 줄인다)
+
+    # 음성 → 글 (C, Whisper small 을 faster-whisper 로). 모델 폴더는 로컬만 읽는다 (scripts/download_models.py --only stt).
+    #   STT_MODEL_PATH 예) /models/whisper-small. 비우거나 폴더가 없으면 /api/v1/stt/* 는 503 (Spring 은 "직접 적어 주세요")
+    stt_model_path: str | None = None
+    stt_compute_type: Literal["int8", "int8_float32", "float32"] = "int8"   # CPU: int8 이 빠르고 메모리가 적다
+    stt_threads: int | None = Field(default=None, ge=1, le=64)              # CPU 스레드 수. 비우면 faster-whisper 기본
+    stt_beam_size: int = Field(default=1, ge=1, le=5)                        # 1 이 가장 빠름. 정확도가 부족하면 늘린다
+    stt_max_seconds: float = Field(default=35.0, gt=0, le=120)               # 이보다 긴 녹음은 422 (Spring 은 30초에서 끊음)
 
     # A의 검색 함수 위치 '모듈경로:함수이름' (예: app.rag.tool_backend:build_search_backend).
     # 비우면 mock 검색 도구를 그대로 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).

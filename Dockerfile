@@ -52,6 +52,17 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.ingest.txt \
     && /opt/venv/bin/python -m pip check
 
+FROM base AS qdrant-init
+
+COPY requirements.qdrant-init.txt ./
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.qdrant-init.txt \
+    && /opt/venv/bin/python -m pip check
+
+COPY scripts ./scripts
+
+CMD ["python", "-m", "scripts.init_qdrant"]
+
 FROM ingest-dependencies AS ingest
 
 COPY app ./app

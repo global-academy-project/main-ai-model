@@ -6,7 +6,7 @@
   - 음수, % 단위인데 100 초과
   - 같은 항목이 두 번 (값이 같으면 하나만, 다르면 둘 다 버림)
   - 감시자 이름이 원문에 없음
-Spring 도 같은 검사를 한 번 더 한다 (ExtractionMerger). 여기서도 거르는 것은 로그·평가를 깨끗하게 두려고.
+Spring 도 같은 검사를 한 번 더 한다 (LlmExtractionVerifier). 여기서도 확인하는 것은 로그·평가를 깨끗하게 두려고.
 """
 
 from __future__ import annotations
@@ -51,6 +51,7 @@ class ExtractedRuleInput:
     work_types: list[WorkTypeHit] = field(default_factory=list)
     watcher_name: str | None = None
     watcher_evidence: str | None = None
+    parsed: bool = True                                # 모델 출력에서 JSON 을 꺼냈나 (False 면 API 는 실패로 돌려준다)
     dropped: list[str] = field(default_factory=list)   # 버린 이유 (로그·평가용, 응답에는 안 나감)
 
 

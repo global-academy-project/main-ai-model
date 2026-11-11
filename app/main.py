@@ -19,6 +19,20 @@ from app.handlers.agent_run_handlers import (
 )
 from app.llm.llm_provider import LLMClientProvider
 
+logger = logging.getLogger(__name__)
+
+
+def _optional_router(path: str):
+    """파일(multipart)을 받는 경로 (사진 인식·STT, C). python-multipart 가 없으면 붙이지 않고 경고만 남긴다
+    (다른 경로는 그대로 뜨게. Spring 은 이 경로가 실패하면 그 기능 없이 계속한다)."""
+    import importlib
+
+    try:
+        return importlib.import_module(path).router
+    except (ImportError, RuntimeError) as exc:
+        logger.warning("%s 경로를 붙이지 않았습니다 (python-multipart 설치 확인): %s", path, exc)
+        return None
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -51,6 +65,12 @@ def create_app() -> FastAPI:
     app.include_router(agent_run_router)
     app.include_router(record_query_router)
     app.include_router(rule_input_extract_router)
+    vision_router = _optional_router("app.api.v1.agent.vision")
+    if vision_router is not None:
+        app.include_router(vision_router)
+    stt_router = _optional_router("app.api.v1.agent.stt")
+    if stt_router is not None:
+        app.include_router(stt_router)
     return app
 
 app = create_app()
