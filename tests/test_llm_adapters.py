@@ -134,7 +134,7 @@ def test_failed_adapter_after_another_uses_base_not_the_other(fake: dict[str, An
 def test_other_model_is_not_touched(fake: dict[str, Any]) -> None:
     _say(_client("extract"))
     _say(_client(None, model_id="Qwen/Qwen3-0.6B"))
-    assert not isinstance(_model("Qwen/Qwen3-0.6B"), _FakePeft)   # 0.6B(AI 도우미)는 peft 를 거치지 않는다
+    assert not isinstance(_model("Qwen/Qwen3-0.6B"), _FakePeft)   # 어댑터 엔진이 없는 다른 기본 모델은 peft 를 거치지 않는다
 
 
 def test_peft_not_installed_falls_back(fake: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:

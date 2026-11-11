@@ -23,6 +23,10 @@ router = APIRouter(prefix="/api/v1/extract", tags=["extract"])
 
 ConfinedSpaceGateLLM = Annotated[LLMClient, Depends(scenario_llm(SCENARIO_KEY))]
 
+# 추출 출력 상한 (토큰). 정상 JSON 은 200토큰 안팎이고 다 쓰면 모델이 스스로 멈추므로 평소 속도는 같다.
+# 모델이 끝맺지 못하고 반복할 때 생성 잠금을 오래 쥐지 않게 막는 안전장치. AI_MAX_OUTPUT_TOKENS 가 더 작으면 그 값을 쓴다
+EXTRACT_MAX_TOKENS = 256
+
 
 @router.post("/rule-input", response_model=DataResponse[RuleInputExtraction])
 def rule_input(
@@ -31,4 +35,4 @@ def rule_input(
         settings: Annotated[Settings, Depends(get_settings)],
 ) -> DataResponse[RuleInputExtraction]:
     # 동기 LLM 호출이 있으므로 def (스레드풀에서 실행). 엔진 문제는 의존성(provider.get)에서 나고 llm_error_handler 가 받는다
-    return run_rule_input_extract(llm, body, max_tokens=settings.ai_max_output_tokens)
+    return run_rule_input_extract(llm, body, max_tokens=min(settings.ai_max_output_tokens, EXTRACT_MAX_TOKENS))

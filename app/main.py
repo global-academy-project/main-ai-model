@@ -68,7 +68,7 @@ def create_app() -> FastAPI:
     vision_router = _optional_router("app.api.v1.agent.vision")
     if vision_router is not None:
         app.include_router(vision_router)
-        stt_router = _optional_router("app.api.v1.agent.stt")
+    stt_router = _optional_router("app.api.v1.agent.stt")
     if stt_router is not None:
         app.include_router(stt_router)
     return app
