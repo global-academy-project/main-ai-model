@@ -24,6 +24,7 @@ _WORK_TYPE_SYNONYMS = {
 
 MAX_PLANNED_QUERIES = 8
 MAX_QUERY_CHARS = 100
+MAX_QUERY_EXPANSIONS = 2
 MAX_SUMMARY_CHARS = 120
 
 
@@ -34,6 +35,33 @@ def normalize_work_type(value: object) -> str | None:
     if key in WORK_TYPES:
         return key
     return _WORK_TYPE_SYNONYMS.get(key)
+
+
+def expand_search_query(query: str) -> str:
+    """Append a small number of known work-type aliases without changing the original query."""
+    normalized = " ".join(query.split())
+    if not normalized or len(normalized) >= MAX_QUERY_CHARS:
+        return normalized
+
+    additions: list[str] = []
+    for alias, canonical in _WORK_TYPE_SYNONYMS.items():
+        if alias in normalized:
+            candidate = canonical
+        elif canonical in normalized:
+            candidate = alias
+        else:
+            continue
+
+        if candidate in normalized or candidate in additions:
+            continue
+        expanded = " ".join([normalized, *additions, candidate])
+        if len(expanded) > MAX_QUERY_CHARS:
+            continue
+        additions.append(candidate)
+        if len(additions) == MAX_QUERY_EXPANSIONS:
+            break
+
+    return " ".join([normalized, *additions])
 
 
 @dataclass(frozen=True)
