@@ -30,8 +30,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_K = 5
 MAX_K = 50
+# 임시(A가 doc_id를 채울 때까지): 벡터 파일 방식으로 적재한 점은 kb_source_id가 없어 검색 결과 doc_id가 None이다.
+# True면 doc_id만 UNKNOWN_DOC_ID로 채워 계속하고(출처 미상), False면 변경 전처럼 TOOL_OUTPUT_INVALID로 거부한다.
+# 표식은 ':'가 없어 kb_source.kb_citation_fields가 sourceType·kbCollection·docId를 비운다. A가 채우면 이 경로는 안 탄다.
+ALLOW_MISSING_DOC_ID = True
+UNKNOWN_DOC_ID = "UNKNOWN"
 _RESERVED_KEYS = frozenset({"query", "k", "min_score"})
 _HIT_FIELDS = ("id", "doc_id", "source", "text", "score")
+
+_warned_missing_doc_id = False  # 경고는 프로세스당 한 번만 (요청마다 쌓이지 않게)
 
 SearchBackend = Callable[..., Sequence[Any]]
 ToolFunction = Callable[[Mapping[str, Any]], dict[str, Any]]
@@ -99,8 +106,19 @@ def _field(hit: Any, name: str) -> Any:
     return hit.get(name) if isinstance(hit, Mapping) else getattr(hit, name, None)
 
 
+def _note_missing_doc_id(tool_name: str) -> None:
+    global _warned_missing_doc_id
+    if not _warned_missing_doc_id:
+        _warned_missing_doc_id = True
+        logger.warning("검색 결과에 doc_id가 없어 %s로 채웁니다 (출처 미상): tool=%s", UNKNOWN_DOC_ID, tool_name)
+
+
 def _to_hit(hit: Any, tool_name: str, require_uuid: bool) -> dict[str, Any]:
     values = {name: _field(hit, name) for name in _HIT_FIELDS}
+    doc_id = values["doc_id"]
+    if ALLOW_MISSING_DOC_ID and (doc_id is None or (isinstance(doc_id, str) and not doc_id.strip())):
+        values["doc_id"] = UNKNOWN_DOC_ID
+        _note_missing_doc_id(tool_name)
     if any(v is None for v in values.values()):
         missing = [n for n, v in values.items() if v is None]
         logger.warning("검색 결과에 없는 필드: tool=%s fields=%s", tool_name, missing)
