@@ -21,6 +21,7 @@ from app.rag.catalog import (
     mark_sources_embedded,
     mark_sources_failed,
     register_source_chunks,
+    register_sources_chunks,
     validate_chunks,
 )
 from app.rag.config import RagSettings
@@ -716,6 +717,9 @@ def save_local_chunk_file_vectors(
     if len(set(natural_keys)) != len(natural_keys):
         raise HTTPException(status_code=422, detail="청크 파일에 중복된 natural_key가 있습니다.")
     indexed_records: list[tuple[LocalChunkRecord, str, dict[str, Any]]] = []
+    sources_by_external_id: dict[str, dict[str, Any]] = {}
+    chunks_by_external_id: dict[str, list[dict[str, Any]]] = {}
+    ledger_key_by_point_id: dict[str, tuple[str, int]] = {}
     if collection == "kb_guides":
         law_keys = {record.natural_key.get("law_key") for record in records}
         source_types = {record.model_extra.get("source_type") if record.model_extra else None for record in records}
@@ -752,7 +756,45 @@ def save_local_chunk_file_vectors(
             chunk_index = indexes.get(natural_key)
             if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
                 raise HTTPException(status_code=422, detail="청크의 natural_key가 chunk_index_map.json에 없습니다.")
+            row = record.model_extra or {}
+            site_id = row.get("site_id")
+            flagged = row.get("flagged")
+            if isinstance(site_id, bool) or not isinstance(site_id, int) or site_id < 0:
+                raise HTTPException(status_code=422, detail="LAW payload.site_id가 올바르지 않습니다.")
+            if not isinstance(flagged, bool):
+                raise HTTPException(status_code=422, detail="LAW payload.flagged가 올바르지 않습니다.")
+            if not isinstance(row.get("title"), str) or not row["title"].strip():
+                raise HTTPException(status_code=422, detail="LAW payload.title이 비어 있습니다.")
+            if not isinstance(row.get("locator"), str) or not row["locator"].strip():
+                raise HTTPException(status_code=422, detail="LAW payload.locator가 비어 있습니다.")
+            law_meta = row.get("law_meta")
+            source = {
+                "source_type": "LAW",
+                "external_id": external_id,
+                "site_id": site_id,
+                "title": row["title"],
+                "url": row.get("url"),
+                "license": row.get("license"),
+                "publisher": row.get("publisher"),
+                "file_path": row.get("file_path"),
+                "content_sha256": (
+                    law_meta.get("source_sha256") if isinstance(law_meta, dict) else None
+                ),
+                "flagged": flagged,
+            }
+            existing_source = sources_by_external_id.get(external_id)
+            if existing_source is not None and existing_source != source:
+                raise HTTPException(status_code=422, detail="같은 LAW external_id의 원본 메타데이터가 일치하지 않습니다.")
+            sources_by_external_id[external_id] = source
+            chunks_by_external_id.setdefault(external_id, []).append(
+                {
+                    "chunk_index": chunk_index,
+                    "text": record.text,
+                    "locator": row["locator"],
+                }
+            )
             point_id = str(uuid5(NAMESPACE_URL, f"LAW:{external_id}:{chunk_index}"))
+            ledger_key_by_point_id[point_id] = (external_id, chunk_index)
             indexed_records.append((record, point_id, record.model_dump()))
     else:
         rows = [record.model_dump() for record in records]
@@ -806,7 +848,32 @@ def save_local_chunk_file_vectors(
                 if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
                     raise HTTPException(status_code=422, detail=f"SIF payload.{field} 형식이 올바르지 않습니다.")
 
+            source = {
+                "source_type": "SIF",
+                "external_id": external_id,
+                "site_id": site_id,
+                "title": row["title"],
+                "url": row.get("url"),
+                "license": row.get("license"),
+                "publisher": row.get("publisher"),
+                "file_path": row.get("file_path"),
+                "content_sha256": row.get("content_sha256"),
+                "flagged": row["flagged"],
+            }
+            existing_source = sources_by_external_id.get(external_id)
+            if existing_source is not None and existing_source != source:
+                raise HTTPException(status_code=422, detail="같은 SIF external_id의 원본 메타데이터가 일치하지 않습니다.")
+            sources_by_external_id[external_id] = source
+            chunks_by_external_id.setdefault(external_id, []).append(
+                {
+                    "chunk_index": chunk_index,
+                    "text": row["text"],
+                    "locator": row["locator"],
+                }
+            )
+
             point_id = str(uuid5(NAMESPACE_URL, f"SIF:{external_id}:{chunk_index}"))
+            ledger_key_by_point_id[point_id] = (external_id, chunk_index)
             payload = {field: row[field] for field in payload_fields if field in row}
             payload["kb_source_id"] = row.get("kb_source_id")
             payload["kb_chunk_id"] = row.get("kb_chunk_id")
@@ -816,6 +883,41 @@ def save_local_chunk_file_vectors(
         settings = RagSettings.from_env()
     except ValueError as exc:
         raise HTTPException(status_code=503, detail="임베딩 설정이 올바르지 않습니다.") from exc
+
+    registered_source_ids: list[int] = []
+    if chunks_by_external_id:
+        registered_ids: dict[tuple[str, int], tuple[int, int, str]] = {}
+        try:
+            source_entries = [
+                (sources_by_external_id[external_id], chunks)
+                for external_id, chunks in chunks_by_external_id.items()
+            ]
+            registrations = register_sources_chunks(settings, collection, source_entries)
+            for external_id, registered in zip(chunks_by_external_id, registrations):
+                registered_source_ids.append(registered.source_id)
+                for registered_chunk in registered.chunks:
+                    registered_ids[(external_id, registered_chunk.chunk_index)] = (
+                        registered.source_id,
+                        registered_chunk.chunk_id,
+                        registered_chunk.point_id,
+                    )
+        except RagBackendError as exc:
+            logger.exception("Public source or chunk registration failed")
+            _mark_failed_after_ingest(settings, registered_source_ids)
+            raise HTTPException(status_code=503, detail="원본·청크 장부 등록에 실패했습니다.") from exc
+
+        indexed_records = [
+            (
+                record,
+                registered_ids[ledger_key_by_point_id[point_id]][2],
+                {
+                    **payload,
+                    "kb_source_id": registered_ids[ledger_key_by_point_id[point_id]][0],
+                    "kb_chunk_id": registered_ids[ledger_key_by_point_id[point_id]][1],
+                },
+            )
+            for record, point_id, payload in indexed_records
+        ]
 
     output_dir = Path(os.getenv("LOCAL_VECTOR_DIR", "data/vectors")).expanduser()
     destination = output_dir / f"{body.dataset_id}.jsonl"
@@ -851,11 +953,13 @@ def save_local_chunk_file_vectors(
     except RagBackendError as exc:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
+        _mark_failed_after_ingest(settings, registered_source_ids)
         logger.exception("Local file vectorization failed")
         raise HTTPException(status_code=502, detail="임베딩 요청이 실패했습니다.") from exc
     except OSError as exc:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
+        _mark_failed_after_ingest(settings, registered_source_ids)
         logger.exception("Local vector file save failed")
         raise HTTPException(status_code=503, detail="로컬 벡터 파일 저장에 실패했습니다.") from exc
 

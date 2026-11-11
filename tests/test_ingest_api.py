@@ -203,6 +203,7 @@ def test_save_local_vectors_failure_keeps_previous_file(monkeypatch, tmp_path):
 
 def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_path):
     from app.rag.embedding import HybridEmbedding, SparseVector
+    from app.rag.catalog import RegisteredSource
 
     _configure_environment(monkeypatch)
     chunk_dir = tmp_path / "out" / "guides" / "law"
@@ -222,7 +223,14 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
             "text": f"제{index + 1}조 원문",
             "embed_text": f"법령 머리말\n제{index + 1}조 원문",
             "collection": "kb_guides",
-                "source_type": "LAW",
+            "source_type": "LAW",
+            "title": "산업안전보건기준에관한규칙",
+            "locator": f"제{index + 1}조",
+            "site_id": 0,
+            "flagged": False,
+            "url": "https://example.test/law",
+            "file_path": "raw/law.xml",
+            "law_meta": {"source_sha256": "a" * 64},
             "kb_source_id": None,
             "kb_chunk_id": None,
             "point_id": None,
@@ -248,6 +256,31 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
     )
 
     batch_calls = []
+    registration_calls = []
+
+    def fake_register_sources_chunks(settings, collection, sources_and_chunks):
+        registration_calls.append((collection, sources_and_chunks))
+        registrations = []
+        for source, chunks in sources_and_chunks:
+            registrations.append(
+                RegisteredSource(
+                    source_id=41,
+                    chunks=tuple(
+                        ingest_main.RegisteredChunk(
+                            chunk_index=chunk["chunk_index"],
+                            chunk_id=101 + chunk["chunk_index"],
+                            point_id=str(uuid5(
+                                NAMESPACE_URL,
+                                f"LAW:{source['external_id']}:{chunk['chunk_index']}",
+                            )),
+                        )
+                        for chunk in chunks
+                    ),
+                    stale_point_ids=(),
+                    stale_chunk_ids=(),
+                )
+            )
+        return tuple(registrations)
 
     def fake_embed_texts(settings, texts):
         batch_calls.append(texts)
@@ -257,6 +290,7 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
         ]
 
     monkeypatch.setattr(ingest_main, "embed_texts", fake_embed_texts)
+    monkeypatch.setattr(ingest_main, "register_sources_chunks", fake_register_sources_chunks)
     response = TestClient(ingest_main.app).post(
         "/ingest/vectors/local/file",
         headers={"Authorization": "Bearer ingest-token"},
@@ -271,6 +305,10 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
     assert response.status_code == 200
     assert response.json()["saved"] == 9
     assert response.json()["file"] == "law-local.jsonl"
+    assert registration_calls[0][0] == "kb_guides"
+    assert registration_calls[0][1][0][0]["source_type"] == "LAW"
+    assert registration_calls[0][1][0][0]["external_id"] == "산업안전보건기준에관한규칙"
+    assert len(registration_calls[0][1][0][1]) == 9
     assert [len(batch) for batch in batch_calls] == [8, 1]
     saved = [
         json.loads(line)
@@ -282,11 +320,13 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
     assert saved[0]["vector"]["dense"] == [0.6, 0.8]
     assert saved[0]["vector"]["sparse"] == {"indices": [4], "values": [1.0]}
     assert saved[0]["payload"]["text"] == records[0]["text"]
-    assert saved[0]["payload"]["kb_source_id"] is None
+    assert saved[0]["payload"]["kb_source_id"] == 41
+    assert saved[0]["payload"]["kb_chunk_id"] == 101
 
 
 def test_save_local_chunk_file_vectors_supports_sif_records(monkeypatch, tmp_path):
     from app.rag.embedding import HybridEmbedding, SparseVector
+    from app.rag.catalog import RegisteredSource
 
     _configure_environment(monkeypatch)
     chunk_dir = tmp_path / "out" / "accidents" / "law"
@@ -333,11 +373,34 @@ def test_save_local_chunk_file_vectors_supports_sif_records(monkeypatch, tmp_pat
         encoding="utf-8",
     )
 
+    registration_calls = []
+
+    def fake_register_sources_chunks(settings, collection, sources_and_chunks):
+        registration_calls.append((collection, sources_and_chunks))
+        return (
+            RegisteredSource(
+                source_id=41,
+                chunks=(
+                    ingest_main.RegisteredChunk(
+                        chunk_index=sources_and_chunks[0][1][0]["chunk_index"],
+                        chunk_id=101,
+                        point_id=str(uuid5(
+                            NAMESPACE_URL,
+                            f"SIF:{sources_and_chunks[0][0]['external_id']}:{sources_and_chunks[0][1][0]['chunk_index']}",
+                        )),
+                    ),
+                ),
+                stale_point_ids=(),
+                stale_chunk_ids=(),
+            ),
+        )
+
     monkeypatch.setattr(
         ingest_main,
         "embed_texts",
         lambda settings, texts: [HybridEmbedding([0.6, 0.8], SparseVector([4], [1.0]))],
     )
+    monkeypatch.setattr(ingest_main, "register_sources_chunks", fake_register_sources_chunks)
     response = TestClient(ingest_main.app).post(
         "/ingest/vectors/local/file",
         headers={"Authorization": "Bearer ingest-token"},
@@ -353,12 +416,21 @@ def test_save_local_chunk_file_vectors_supports_sif_records(monkeypatch, tmp_pat
     assert response.status_code == 200
     assert response.json()["collection"] == "kb_accidents"
     assert response.json()["validation"] == "structural"
+    assert registration_calls[0][0] == "kb_accidents"
+    assert registration_calls[0][1][0][0]["source_type"] == "SIF"
+    assert registration_calls[0][1][0][0]["external_id"] == external_id
+    assert registration_calls[0][1][0][1] == [{
+        "chunk_index": 0,
+        "text": record["text"],
+        "locator": record["locator"],
+    }]
     saved = json.loads((output_dir / "sif-test.jsonl").read_text(encoding="utf-8"))
     assert saved["id"] == str(uuid5(NAMESPACE_URL, f"SIF:{external_id}:0"))
     assert saved["payload"]["source_type"] == "SIF"
     assert saved["payload"]["text"] == record["text"]
     assert saved["payload"]["accident_type"] == ["FIRE"]
-    assert saved["payload"]["kb_source_id"] is None
+    assert saved["payload"]["kb_source_id"] == 41
+    assert saved["payload"]["kb_chunk_id"] == 101
 
 
 def test_save_local_chunk_file_requires_passing_validation(monkeypatch, tmp_path):
@@ -774,3 +846,85 @@ def test_catalog_validates_chunk_identity_and_marks_expected_count(monkeypatch):
     assert executed[0][1] == [2]
     assert executed[1][1] == [1]
     assert connection is not None
+
+
+def test_catalog_stores_public_source_site_id_as_null(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.rag import catalog
+    from app.rag.config import RagSettings
+
+    executed = []
+
+    class Cursor:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, query, params):
+            self.query = query
+            executed.append((query, params))
+
+        def fetchone(self):
+            return (42,)
+
+        def fetchall(self):
+            if "qdrant_point_id" in self.query:
+                return []
+            return [(101, 0)]
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def close(self):
+            pass
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    class MySQLError(Exception):
+        pass
+
+    connection = Connection()
+    driver = SimpleNamespace(MySQLError=MySQLError, connect=lambda **kwargs: connection)
+    monkeypatch.setattr(catalog, "_mysql_driver", lambda: driver)
+    settings = RagSettings(
+        embedding_url="http://embedding",
+        qdrant_url="http://qdrant:6333",
+        embedding_model="BAAI/bge-m3",
+        embedding_dim=2,
+        timeout_seconds=5,
+        embedding_api_key=None,
+        qdrant_api_key=None,
+        kb_db_host="mysql",
+        kb_ingest_password="secret",
+    )
+
+    registered = catalog.register_sources_chunks(
+        settings,
+        "kb_guides",
+        [
+            (
+                {
+                    "source_type": "LAW",
+                    "external_id": "law-key",
+                    "site_id": 0,
+                    "title": "안전 규칙",
+                    "flagged": False,
+                },
+                [{"chunk_index": 0, "text": "법령 조문", "locator": "제1조"}],
+            )
+        ],
+    )
+
+    assert registered[0].source_id == 42
+    assert registered[0].chunks[0].chunk_id == 101
+    assert executed[0][1][2] is None
