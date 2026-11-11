@@ -22,7 +22,7 @@ _BINDING_FIELDS = frozenset({"engine", "model_id"})
 
 # SCENARIO_MODELS 표 아래, class Settings 위
 # 통합 채팅창에서 분류할 시나리오 (글자, 쉼표로). A와 F는 함께 넣는다. D·E는 처리기를 붙일 때 자기 글자를 더한다.
-CHAT_SCENARIOS = "A,D,F"
+CHAT_SCENARIOS = "A,E,F"
 
 # ── 시나리오별 LLM 모델 선택표 ──────────────────────────────────────────────
 # 각 담당자는 자기 시나리오 줄만 고친다. 고친 뒤 서버를 다시 띄우면 적용된다.
