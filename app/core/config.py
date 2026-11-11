@@ -42,7 +42,7 @@ SCENARIO_MODELS: dict[str, dict[str, str]] = {
     "default": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # 아래에서 고르지 않은 것 전부
     "router": {"engine": "CATEGORIZATOR", "model_id": "Qwen/Qwen3-0.6B"},  # B · 시나리오 분류 (채팅 접수)
     "A": {"engine": "WORK_REGISTER", "model_id": "Qwen/Qwen3-0.6B"},  # B · 작업 등록 → 되묻기 → 서류 초안
-    "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-1.7B"},  # C · 밀폐공간 작업 → 기준 미달 차단 (문장 추출. E와 같은 1.7B를 같이 씀, 어댑터 extract)
+    "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-0.6B"},  # C · 밀폐공간 작업 → 기준 미달 차단 (문장 추출. E와 같은 1.7B를 같이 씀, 어댑터 extract)
     # "C": {"engine": "NEAR_MISS_WARNING", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
     # "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-4B"},  # D · 마감 현황·TBM·안전일지 기록 질의
      "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-1.7B"},  # D · 감사 대응 질의

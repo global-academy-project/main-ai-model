@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.agent.rule_input_parse import parse_rule_input
-from app.api.v1.agent.rule_input_extract import router
+from app.api.v1.agent.rule_input_extract import EXTRACT_MAX_TOKENS, router
 from app.core import get_settings
 from app.exceptions import LLMError
 from app.handlers import llm_error_handler
@@ -188,7 +188,29 @@ def test_route_uses_confined_space_gate_model_and_returns_spring_shape():
                                                "evidence": "낮게 나와서 17.0%"}
     assert body["data"]["workTypes"] == [] and body["data"]["watcherName"] is None
     assert provider.keys == ["confined_space_gate"]
-    assert provider.client.calls[0]["max_tokens"] == 512
+    assert provider.client.calls[0]["max_tokens"] == EXTRACT_MAX_TOKENS   # 설정(512)보다 작은 추출 상한
+
+
+def test_route_uses_smaller_setting_when_below_extract_cap(monkeypatch):
+    monkeypatch.setattr(FakeSettings, "ai_max_output_tokens", 100)
+    http, provider = client_with(reply({"measurements": [], "workTypes": [], "watcherName": None, "watcherEvidence": None}))
+    assert http.post("/api/v1/extract/rule-input", json={"text": TEXT}).status_code == 200
+    assert provider.client.calls[0]["max_tokens"] == 100
+
+
+def test_extract_engine_limits_generation_time():
+    from app.llm.engines.llm_confined_space_gate import ConfinedSpaceGateClient
+
+    options = ConfinedSpaceGateClient().generate_options()
+    assert 0 < options["max_time"] < 30   # Spring 대기(APP_EXTRACT_LLM_TIMEOUT_SECONDS 기본 30초)보다 짧게
+    assert not {"max_new_tokens", "do_sample"} & set(options)
+
+
+def test_extract_shares_the_router_model():
+    from app.core.config import SCENARIO_MODELS
+
+    # 같은 이름이면 메모리에 한 벌만 올라가고, 추출은 그 위에 어댑터(extract)로 나뉜다
+    assert SCENARIO_MODELS["B"]["model_id"] == SCENARIO_MODELS["router"]["model_id"] == "Qwen/Qwen3-0.6B"
 
 
 def test_route_llm_error_is_failure_response():
