@@ -1,12 +1,15 @@
 """문장 → 규칙 입력 추출 (C 담당): LLM 출력(JSON 객체) → 검사한 추출 결과. 표준 라이브러리만 쓴다 (모델 없이 테스트).
 
-버리는 값 (원칙: LLM 은 숫자를 추정하지 않는다, 확실하지 않으면 비운다)
-  - 요청에 없는 항목·작업 종류, 모르는 단위
-  - 근거 문구(evidence)가 원문에 그대로 없거나, 근거 문구 안에 값 숫자가 그대로 없음
+버리는 값 (원칙: LLM 은 숫자를 추정하지 않는다)
+  - 요청에 없는 항목·작업 종류
+  - 근거 문구(evidence)가 원문에 그대로 없거나, 근거 문구 안에 값 숫자가 그대로 없음 (지어낸 값)
   - 음수, % 단위인데 100 초과
-  - 같은 항목이 두 번 (값이 같으면 하나만, 다르면 둘 다 버림)
   - 감시자 이름이 원문에 없음
-Spring 도 같은 검사를 한 번 더 한다 (LlmExtractionVerifier). 여기서도 확인하는 것은 로그·평가를 깨끗하게 두려고.
+버리지 않고 Spring 에 넘기는 값 (11/11: 적힌 대로 뽑고 판단은 Spring LlmExtractionVerifier 가 한다)
+  - 단위 없음 (unit null): Spring 이 항목 단위로 채우고 "단위가 없어 ~로 봤습니다"
+  - 항목 단위가 아닌 단위 ("암모니아 2%"): Spring 이 비우고 "기준 단위는 ~"
+  - 같은 항목에 다른 값 (둘 다 넘김): Spring 이 비우고 "값이 둘 이상입니다 (…). 하나만 적어 주세요"
+    (어느 항목인지 사용자에게 알려 주려면 Spring 이 두 값을 다 봐야 한다. 같은 값이 두 번이면 하나만 넘김)
 """
 
 from __future__ import annotations
@@ -27,7 +30,8 @@ ITEM_UNITS: dict[str, frozenset[str]] = {
     "NH3": frozenset({"PPM"}),
     "CL2": frozenset({"PPM"}),
 }
-_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+# 숫자 (영문 약어 안의 숫자는 빼고: "CO2=2%" 의 2 는 뒤의 2 만. Spring LlmExtractionVerifier 와 같음)
+_NUMBER_RE = re.compile(r"(?<![A-Za-z\d.])\d+(?:\.\d+)?")
 MAX_NAME_LENGTH = 20
 
 
@@ -35,7 +39,7 @@ MAX_NAME_LENGTH = 20
 class Measurement:
     item: str
     value: Decimal
-    unit: str
+    unit: str | None   # None: 원문에 단위가 없음 (Spring 이 항목 단위로 채운다)
     evidence: str
 
 
@@ -63,11 +67,12 @@ def parse_rule_input(raw: dict[str, Any] | None, text: str, items: list[str], wo
     allowed_items = {i.upper() for i in items} & ITEM_UNITS.keys()
     allowed_types = {t.upper() for t in work_types}
 
-    seen: dict[str, Measurement] = {}
-    conflict: set[str] = set()
+    kept: list[Measurement] = []
     for m in _list(raw.get("measurements")):
         item = _str(m.get("item")).upper()
-        unit = _str(m.get("unit")).upper()
+        unit = _str(m.get("unit")).upper() or None
+        if unit not in UNITS:
+            unit = None   # 모르는 단위 글자는 없는 것으로 (Spring 이 원문 단위를 직접 본다)
         evidence = _str(m.get("evidence"))
         value = _decimal(m.get("value"))
         if item not in allowed_items:
@@ -76,21 +81,13 @@ def parse_rule_input(raw: dict[str, Any] | None, text: str, items: list[str], wo
         if value is None or value < 0 or (unit in ("PCT", "PCT_LEL") and value > 100):
             out.dropped.append(f"{item}: 값이 숫자가 아니거나 범위 밖")
             continue
-        if unit not in UNITS or unit not in ITEM_UNITS[item]:
-            out.dropped.append(f"{item}: 단위 {unit!r} 를 받지 않음")
-            continue
         if not evidence or evidence not in text or not _contains_number(evidence, value):
             out.dropped.append(f"{item}: 근거 문구가 원문에 없거나 값이 근거에 없음")
             continue
-        prev = seen.get(item)
-        if prev is not None and prev.value != value:
-            conflict.add(item)
-            continue
-        seen.setdefault(item, Measurement(item, value, unit, evidence))
-    for item in conflict:
-        seen.pop(item, None)
-        out.dropped.append(f"{item}: 값이 둘 이상")
-    out.measurements = list(seen.values())
+        if any(k.item == item and k.value == value for k in kept):
+            continue   # 같은 항목·같은 값은 하나만
+        kept.append(Measurement(item, value, unit, evidence))
+    out.measurements = kept
 
     types: dict[str, WorkTypeHit] = {}
     for t in _list(raw.get("workTypes")):

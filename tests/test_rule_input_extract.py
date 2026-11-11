@@ -45,8 +45,6 @@ def test_keeps_value_with_verbatim_evidence():
 @pytest.mark.parametrize("bad", [
     m("O2", 17.0, "PCT", "낮게 나와서 17%"),        # 근거가 원문과 다름
     m("O2", 18.0, "PCT", "낮게 나와서 17.0%"),      # 값이 근거에 없음
-    m("O2", 17.0, "PPM", "낮게 나와서 17.0%"),      # 항목이 받지 않는 단위
-    m("O2", 17.0, "", "낮게 나와서 17.0%"),         # 단위 없음
     m("XX", 17.0, "PCT", "낮게 나와서 17.0%"),      # 모르는 항목
     m("O2", "열일곱", "PCT", "낮게 나와서 17.0%"),  # 숫자 아님
     m("O2", 170, "PCT", "낮게 나와서 17.0%"),       # % 인데 100 초과 (근거 검사 전에 걸림)
@@ -63,14 +61,31 @@ def test_drops_item_not_requested():
     assert out.measurements == []
 
 
-def test_conflicting_values_drop_both_and_same_value_kept_once():
+def test_two_values_of_one_item_both_go_to_spring_and_same_value_kept_once():
+    # 11/11: 어느 항목이 두 번인지 Spring 이 "하나만 적어 주세요" 로 알려 주도록 둘 다 넘긴다
     text = "산소 17% 다시 재니 산소 19%"
     out = parse_rule_input({"measurements": [m("O2", 17, "PCT", "산소 17%"), m("O2", 19, "PCT", "산소 19%")]},
                            text, ITEMS, TYPES)
-    assert out.measurements == []
+    assert [(x.item, x.value) for x in out.measurements] == [("O2", Decimal("17")), ("O2", Decimal("19"))]
     out = parse_rule_input({"measurements": [m("O2", 17, "PCT", "산소 17%"), m("O2", 17.0, "PCT", "산소 17%")]},
                            text, ITEMS, TYPES)
     assert len(out.measurements) == 1
+
+
+def test_missing_or_other_unit_goes_to_spring():
+    # 단위 없음 → unit None (Spring 이 항목 단위로 채움), 항목 단위가 아님 → 그대로 (Spring 이 비우고 안내)
+    text = "산소 19.5 암모니아 2%"
+    out = parse_rule_input({"measurements": [m("O2", 19.5, None, "산소 19.5"), m("NH3", 2, "PCT", "암모니아 2%"),
+                                             m("O2", 19.5, "%", "산소 19.5")]}, text, ITEMS, TYPES)
+    assert [(x.item, x.value, x.unit) for x in out.measurements] == [
+        ("O2", Decimal("19.5"), None), ("NH3", Decimal("2"), "PCT")]   # 모르는 단위 글자("%")는 없는 것으로, 같은 값은 하나
+
+
+def test_number_inside_abbreviation_is_not_a_value():
+    text = "CO2=2% H2S 3ppm"
+    out = parse_rule_input({"measurements": [m("CO2", 2, "PCT", "CO2=2%"), m("H2S", 2, "PPM", "H2S 3ppm")]},
+                           text, ITEMS, TYPES)
+    assert [(x.item, x.value) for x in out.measurements] == [("CO2", Decimal("2"))]   # H2S 의 2 는 값이 아님
 
 
 def test_lel_accepts_percent_and_lel_unit():
@@ -234,3 +249,27 @@ def test_route_non_json_is_failure_response():
     http, _ = client_with(FakeLLMClient([text_response("모르겠습니다")]))
     res = http.post("/api/v1/extract/rule-input", json={"text": TEXT})
     assert res.status_code >= 500 and res.json()["success"] is False
+
+
+def test_adapter_prompt_only_when_adapter_folder_ready(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import app.core as core
+    from app.agent.rule_input_prompt import ADAPTER_SYSTEM_PROMPT
+
+    class AdapterClient(FakeLLMClient):
+        adapter = "extract"
+
+    folder = tmp_path / "extract"
+    monkeypatch.setattr(core, "get_settings", lambda: SimpleNamespace(llm_adapters={"extract": str(folder)}))
+
+    llm = AdapterClient([text_response("{}")])
+    extract_rule_input(llm, TEXT, ITEMS, TYPES)
+    assert llm.calls[0]["system"] != ADAPTER_SYSTEM_PROMPT   # 폴더가 아직 없음 → 긴 프롬프트
+
+    folder.mkdir()
+    (folder / "adapter_config.json").write_text("{}", encoding="utf-8")
+    llm = AdapterClient([text_response("{}")])
+    extract_rule_input(llm, TEXT, ITEMS, TYPES)
+    assert llm.calls[0]["system"] == ADAPTER_SYSTEM_PROMPT    # 학습 때와 같은 짧은 프롬프트
+    assert llm.calls[0]["messages"][0].content == f"문장: {TEXT}"
