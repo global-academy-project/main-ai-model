@@ -22,6 +22,15 @@ from ._base import EngineSpec, build_config
 ENGINE_NAME = "DAILY_SAFETY_LOG"  # app/core/config.py의 Engine 이름
 OWNER = "D"
 
+SYSTEM_PROMPT = """너는 산업현장 안전관리 시나리오 D의 요약 모델이다.
+입력으로 전달된 Spring 공식 집계 결과만 사용해 TBM, 마감현황, 일일 안전일지를 요약한다.
+건수·비율·날짜·ID를 추측하거나 새로 계산하지 않는다.
+입력에 없는 내용은 '확인되지 않음'이라고 표시한다.
+반드시 JSON 객체 하나만 출력한다.
+형식:
+{"summary":"짧은 종합 요약", "tbm":"TBM 요약", "deadline":"마감현황 요약", "dailySafetyLog":"안전일지 요약", "warnings":[], "evidence":[]}
+"""
+
 SPEC = EngineSpec(
     model_id=None,          # 예: "Qwen/Qwen3-1.7B" 또는 로컬 경로 "D:/models/qwen3-1.7b". None이면 default 모델
     device=None,            # 예: "cuda". None이면 default
@@ -51,19 +60,27 @@ class DailySafetyLogClient(LLMClient):
     #   기록 질의와 같은 어댑터를 쓰려면 이름을 "record_query" 로 적는다 (어댑터 폴더를 하나만 둠).
     # adapter = "daily_log"
 
-    # ── 손질 지점 (필요할 때만 주석을 풀어 고친다. 기본 동작은 아무것도 하지 않는 것과 같다) ──
-    #
-    # def prepare_messages(self, chat_messages: list[dict[str, str]]) -> list[dict[str, str]]:
-    #     """모델에 넣기 전 메시지 손질. 새 목록을 돌려준다. 예: 마지막 user 메시지 끝에 "JSON 한 개만 출력" 덧붙이기"""
-    #     return chat_messages
-    #
-    # def generate_options(self) -> dict:
-    #     """generate()에 더 넘길 인자. 예: {"repetition_penalty": 1.1} (max_new_tokens·do_sample은 넣을 수 없다)"""
-    #     return {}
-    #
-    # def finish_text(self, text: str) -> str:
-    #     """모델 출력 손질. 예: 모델이 붙이는 머리말 떼기"""
-    #     return text
+    def prepare_messages(self, chat_messages: list[dict[str, str]]) -> list[dict[str, str]]:
+        """요약 입력 뒤에 JSON 출력 규칙을 붙인다."""
+        messages = [dict(message) for message in chat_messages]
+        if messages and messages[-1].get("role") == "user":
+            messages[-1]["content"] = (
+                f"{messages[-1].get('content', '')}\n\n"
+                "공식 집계값만 사용하고 JSON 객체 하나만 출력하라. "
+                "summary, tbm, deadline, dailySafetyLog, warnings, evidence 필드를 포함하라."
+            )
+        return messages
+
+    def generate_options(self) -> dict[str, Any]:
+        return {"repetition_penalty": 1.05}
+
+    def finish_text(self, text: str) -> str:
+        """코드 펜스와 앞뒤 설명을 제거해 JSON 파서가 처리할 수 있게 한다."""
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            cleaned = "\n".join(lines[1:-1]).strip() if len(lines) >= 3 else cleaned
+        return cleaned
 
 
 def build_daily_safety_log_client(*, settings: Any, model_id: str | None = None) -> DailySafetyLogClient:

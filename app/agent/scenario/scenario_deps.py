@@ -10,6 +10,7 @@ from app.agent.agent_deps import ToolRegistryDep
 from app.agent.scenario.scenario_classifier import ScenarioClassifier
 from app.agent.scenario.scenario_dispatch import ScenarioDispatcher
 from app.agent.scenario.scenario_handlers import load_chat_scenarios, register_work_register_handlers
+from app.agent.scenario.daily_safety_log_handler import make_daily_safety_log_handler
 from app.agent.scenario.scenario_retriever import ReferenceRetriever
 from app.agent.scenario.scenario_router import Scenario
 from app.core.config import get_settings
@@ -56,6 +57,7 @@ def get_scenario_dispatcher(
     dispatcher = ScenarioDispatcher(provider, chat_scenarios=chat, classifier=classifier)
     # /work-register(agent_deps.get_work_register_agent)와 같은 출력 토큰 한도를 쓴다
     register_work_register_handlers(dispatcher, registry, judge_max_tokens=settings.ai_max_output_tokens)
+    dispatcher.register(Scenario.DASHBOARD, make_daily_safety_log_handler())
     return dispatcher
 
 
