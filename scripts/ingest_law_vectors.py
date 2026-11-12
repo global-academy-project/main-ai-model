@@ -9,13 +9,16 @@
     python -m scripts.ingest_law_vectors --skip-save --env-file ...     # 이미 만든 벡터 파일을 다시 올림 (재임베딩 없음)
     python -m scripts.ingest_law_vectors --load-via api                 # Qdrant 올리기를 서버(/ingest/vectors/local/load)가 함
 
-scripts/ingest_law.py(장부 기록 + /ingest/chunks)와 다른 점
-  * 장부(agent_kb)를 쓰지 않는다. 이 경로의 점은 payload의 kb_source_id·kb_chunk_id가 null이다 (A 문서:
-    "장부와 연결된 정식 적재가 아니다"). 같은 point id를 쓰므로 ingest_law로 올린 점을 이 경로가 덮어쓰면
-    장부 연결이 payload에서 사라지고, ingest_law --verify-only는 실패한다 (복구: ingest_law --force).
-  * 임베딩은 서버가 한다: POST /ingest/vectors/local/file 이 서버의 LOCAL_CHUNK_DIR에서 05_chunks.jsonl,
-    06_validation.json, chunk_index_map.json 을 읽어 LOCAL_VECTOR_DIR/<dataset_id>.jsonl 을 만든다.
+장부 id와 chunk_index 대응표 (예전 scripts/ingest_law.py 의 역할을 이어받았다)
+  * 장부(agent_kb) 등록은 서버(API)가 하고, 벡터 파일 payload의 kb_source_id·kb_chunk_id가 채워져 있어야 검색 결과
+    doc_id("LAW:{kb_source_id}")가 생긴다. 그래서 장부 id가 없는 점이 하나라도 있으면 올리지 않는다 (--no-require-ledger-ids로 끔).
+  * 새 조문이 생기면(또는 대응표가 처음이면) --update-index-map 으로 새 번호를 배정한다. 기존 번호는 바꾸거나 재사용하지 않고
+    새 키만 이어서 받는다. 파일을 덮어쓰기 전에 chunk_index_map.json.bak 으로 한 벌 남긴다. 서버가 같은 파일을 읽으므로
+    서버를 부르기 전에 쓴다 (--dry-run과 --verify-only는 쓰지 않는다).
+  * 임베딩은 서버가 한다: POST /ingest/vectors/local/file 이 서버의 <LOCAL_CHUNK_ROOT>/<data_type>/<subdir>/ (법령은 guides/law)에서
+    05_chunks.jsonl, 06_validation.json, chunk_index_map.json 을 읽어 LOCAL_VECTOR_DIR/<dataset_id>.jsonl 을 만든다.
     이 스크립트는 그 세 파일이 --chunks 와 같은 폴더(서버가 읽는 폴더의 사본)에 있다고 본다.
+    요청에 data_type·subdir를 싣는다. 서버 폴더에 파일이 없으면 404다. data_type이 없던 옛 서버는 --data-type none.
 
 흐름
   1. 입력 검사 (06_validation.json ok·청크 수, 법령 하나, 필드, chunk_index_map.json이 모든 청크를 덮는지)
@@ -25,7 +28,7 @@ scripts/ingest_law.py(장부 기록 + /ingest/chunks)와 다른 점
   5. Qdrant 올리기: file = 호스트의 벡터 파일을 32개씩 PUT (쓰기 키 필요) / api = 서버가 올림
   6. 검증: Qdrant 점 수, 기대 point id 전수 조회(payload 대조), 표본 벡터(dense·sparse), 장부 연결 여부 보고
 
-id 규칙 (서버·scripts/ingest_law.py·scripts/init_qdrant.py가 같은 공식)
+id 규칙 (서버·/init_qdrant.py가 같은 공식)
   point_id = uuid5(NAMESPACE_URL, "LAW:{external_id}:{chunk_index}"),  chunk_index = chunk_index_map.json[law_key|article_key|part]
 
 환경 변수 (값은 문서·저장소에 넣지 않는다)
@@ -46,6 +49,7 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 import time
 import uuid
@@ -57,9 +61,11 @@ from urllib.parse import urlsplit
 
 SOURCE_TYPE = "LAW"
 COLLECTION = "kb_guides"
-VALIDATION_NAME = "06_validation.json"  # 서버가 LOCAL_CHUNK_DIR에서 이 이름으로 읽는다
+VALIDATION_NAME = "06_validation.json"  # 서버가 청크 폴더에서 이 이름으로 읽는다
 INDEX_MAP_NAME = "chunk_index_map.json"  # 〃
 SAVE_ROUTE = "/ingest/vectors/local/file"
+DATA_TYPE = "guides"  # 요청의 data_type: 서버는 <LOCAL_CHUNK_ROOT>/<data_type>/<subdir>/ 에서 읽는다
+SUBDIR = "law"  # 요청의 subdir
 LOAD_ROUTE = "/ingest/vectors/local/load"
 DATASET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 CHUNK_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.jsonl$")
@@ -170,12 +176,14 @@ def check_records(records: Sequence[dict[str, Any]], validation_path: Path) -> s
     return external_id
 
 
-def load_index_map(path: Path, external_id: str) -> dict[str, int]:
-    """서버는 이 파일이 없으면 422다. 이 스크립트는 만들지 않는다 (ingest_law가 만든다)."""
+def load_index_map(path: Path, external_id: str, *, allow_missing: bool = False) -> dict[str, int]:
+    """서버는 이 파일이 없으면 422다. allow_missing(--update-index-map)일 때만 없는 파일을 빈 대응표로 본다."""
     if not path.is_file():
+        if allow_missing:
+            return {}
         raise InputError(
-            f"{INDEX_MAP_NAME}가 없습니다: {path}. 이 파일은 scripts.ingest_law가 만들고 갱신합니다 "
-            "(번호의 유일한 보관처). 법령을 처음 올리는 거라면 ingest_law --dry-run도 아닌 실제 실행을 한 번 거쳐야 합니다."
+            f"{INDEX_MAP_NAME}가 없습니다: {path}. 번호의 유일한 보관처이니 백업본이 있으면 먼저 복원하세요. "
+            "법령을 처음 올리는 거라면 --update-index-map 으로 새로 만들 수 있습니다."
         )
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -191,6 +199,31 @@ def load_index_map(path: Path, external_id: str) -> dict[str, int]:
     if len(set(indexes.values())) != len(indexes):
         raise InputError("대응표에 같은 chunk_index가 두 번 나옵니다.")
     return dict(indexes)
+
+
+def assign_indexes(records: Sequence[dict[str, Any]], existing: dict[str, int]) -> dict[str, int]:
+    """대응표에 없는 natural_key에만 새 번호를 준다. 기존 번호는 바꾸거나 재사용하지 않는다 (예전 ingest_law와 같은 규칙)."""
+    result = dict(existing)
+    used = set(result.values())
+    if len(used) != len(result):
+        raise InputError("대응표에 같은 chunk_index가 두 번 나옵니다.")
+    next_index = max(used) + 1 if used else 0
+    for record in records:
+        key = natural_key_str(record)
+        if key not in result:
+            result[key] = next_index
+            next_index += 1
+    return result
+
+
+def save_index_map(path: Path, external_id: str, indexes: dict[str, int]) -> None:
+    """대응표를 원자적으로 쓴다. 이미 파일이 있으면 .bak 으로 한 벌 남긴다 (번호의 유일한 보관처)."""
+    body = {"source_type": SOURCE_TYPE, "external_id": external_id, "indexes": indexes}
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(body, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+    if path.is_file():
+        shutil.copy2(path, path.with_suffix(path.suffix + ".bak"))
+    temp.replace(path)
 
 
 @dataclass(frozen=True)
@@ -214,7 +247,7 @@ def expected_points(records: Sequence[dict[str, Any]], indexes: dict[str, int], 
         shown = ", ".join(missing[:5]) + (f" 외 {len(missing) - 5}건" if len(missing) > 5 else "")
         raise InputError(
             f"chunk_index_map.json에 없는 청크가 {len(missing)}건 있습니다 ({shown}). "
-            "서버가 422를 냅니다. scripts.ingest_law를 한 번 실행해 대응표를 갱신하세요."
+            "서버가 422를 냅니다. --update-index-map 으로 새 번호를 배정하세요 (기존 번호는 바뀌지 않습니다)."
         )
     ids = [p.point_id for p in points]
     if len(set(ids)) != len(ids):
@@ -427,23 +460,32 @@ def save_vectors(
     chunk_file: str,
     dataset_id: str,
     count: int,
+    data_type: str | None = None,
+    subdir: str | None = None,
     retries: int = 2,
     timeout: float = 1800.0,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     """POST /ingest/vectors/local/file. 서버가 임베딩을 8개씩 하므로 청크 수에 비례해 오래 걸린다."""
+    request: dict[str, Any] = {"dataset_id": dataset_id, "chunk_file": chunk_file}
+    if data_type is not None:
+        request["data_type"] = data_type
+    if subdir is not None:
+        request["subdir"] = subdir
+    where = "LOCAL_CHUNK_DIR" if data_type is None else f"LOCAL_CHUNK_ROOT/{data_type}/{subdir or SUBDIR}/"
     body = _post_json(
         session,
         f"{ingest_url.rstrip('/')}{SAVE_ROUTE}",
         token,
-        {"dataset_id": dataset_id, "chunk_file": chunk_file},
+        request,
         what="벡터 파일 만들기",
         retries=retries,
         timeout=timeout,
         sleep=sleep,
         not_found_hint=(
-            f"kb-ingest의 LOCAL_CHUNK_DIR에 {chunk_file}가 없습니다. Docker면 out/law를 컨테이너에 마운트했는지 확인하세요 "
-            "(서버는 이 스크립트가 읽는 파일의 사본을 자기 폴더에서 읽습니다)."
+            f"kb-ingest의 {where}에 {chunk_file}가 없습니다. 05_chunks.jsonl·06_validation.json·chunk_index_map.json을 "
+            "그 폴더에 복사했는지 확인하세요 (compose 기본: 호스트 out\\<data_type>\\<subdir>\\ = 컨테이너 /data/out/<data_type>/<subdir>/). "
+            "서버는 이 스크립트가 읽는 파일의 사본을 자기 폴더에서 읽습니다."
         ),
     )
     if body.get("saved") != count or isinstance(body.get("saved"), bool):
@@ -492,8 +534,13 @@ def _finite_numbers(values: Any) -> bool:
     )
 
 
-def check_vector_file(path: Path, points: Sequence[ExpectedPoint], dim: int) -> tuple[list[dict[str, Any]], list[str]]:
+def check_vector_file(
+    path: Path, points: Sequence[ExpectedPoint], dim: int, *, require_ledger_ids: bool = False
+) -> tuple[list[dict[str, Any]], list[str]]:
     """서버가 만든 벡터 파일을 올리기 전에 검사한다. (올릴 점 목록, 문제 목록).
+
+    장부 id(kb_source_id·kb_chunk_id)는 둘 다 null이거나 둘 다 양의 정수이고 kb_chunk_id는 겹치지 않는다.
+    require_ledger_ids 가 True 면 null 인 점도 문제로 본다 (검색 결과 doc_id가 비기 때문).
 
     기대 point id와 정확히 일치해야 한다. 본문(payload.text)이 05와 같은지도 본다 — 서버가 옛 청크 파일을
     읽었거나 다른 대응표를 썼다면 여기서 드러난다.
@@ -507,6 +554,7 @@ def check_vector_file(path: Path, points: Sequence[ExpectedPoint], dim: int) -> 
     problems: list[str] = []
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
+    chunk_ids: dict[int, str] = {}
     with path.open(encoding="utf-8") as handle:
         for number, line in enumerate(handle, start=1):
             if not line.strip():
@@ -549,6 +597,19 @@ def check_vector_file(path: Path, points: Sequence[ExpectedPoint], dim: int) -> 
                 problems.append(f"payload의 source_type/site_id/flagged가 이상함: {label}")
             if payload.get("text") != point.record["text"]:
                 problems.append(f"payload.text가 05와 다름 (서버가 다른 청크 파일을 읽었을 수 있음): {label}")
+            ledger = {name: payload.get(name) for name in ("kb_source_id", "kb_chunk_id")}
+            bad = [name for name, value in ledger.items() if value is not None and not (type(value) is int and value > 0)]
+            if bad:
+                problems.append(f"장부 id가 양의 정수나 null이 아님 ({', '.join(bad)}): {label}")
+            elif (ledger["kb_source_id"] is None) != (ledger["kb_chunk_id"] is None):
+                problems.append(f"kb_source_id와 kb_chunk_id 중 하나만 있음: {label}")
+            elif ledger["kb_chunk_id"] is None:
+                if require_ledger_ids:
+                    problems.append(f"장부 id(kb_source_id·kb_chunk_id)가 없음 (--require-ledger-ids): {label}")
+            elif ledger["kb_chunk_id"] in chunk_ids:
+                problems.append(f"kb_chunk_id {ledger['kb_chunk_id']}가 겹침: {label} / {chunk_ids[ledger['kb_chunk_id']]}")
+            else:
+                chunk_ids[ledger["kb_chunk_id"]] = label
             result.append({"id": pid, "vector": vector, "payload": payload})
     missing = [expected[pid].label for pid in expected if pid not in seen]
     if missing:
@@ -655,8 +716,12 @@ def verify(
     *,
     embedding_dim: int,
     max_report: int = 8,
+    require_ledger_ids: bool = False,
 ) -> tuple[list[str], list[str]]:
-    """(문제 목록, 참고 목록). 문제가 비어 있으면 통과. 참고는 실패가 아니다 (장부 연결 여부 등)."""
+    """(문제 목록, 참고 목록). 문제가 비어 있으면 통과. 참고는 실패가 아니다 (기대보다 많은 점 등).
+
+    require_ledger_ids 가 True 면 장부 id가 없는 점을 문제로 올린다 (False면 참고).
+    """
     problems: list[str] = []
     notes: list[str] = []
     base = qdrant_url.rstrip("/")
@@ -706,10 +771,11 @@ def verify(
         problems.append(_short("payload가 05와 다른 점", differ, max_report))
     present = expected - len(missing)
     if present and linked < present:
-        notes.append(
-            f"장부 연결: kb_source_id·kb_chunk_id가 있는 점 {linked}/{present}. 이 경로는 장부를 쓰지 않아 null이 정상입니다. "
-            "ingest_law --verify-only는 이 상태에서 실패합니다 (장부와 연결하려면 ingest_law --force)."
+        message = (
+            f"장부 연결: kb_source_id·kb_chunk_id가 있는 점 {linked}/{present}. "
+            "없는 점은 검색 결과 doc_id가 비어 나옵니다 (서버가 장부 id를 채웠는지 확인)."
         )
+        (problems if require_ledger_ids else notes).append(message)
 
     samples = [points[i] for i in sample_positions(expected)]
     if samples:
@@ -742,7 +808,7 @@ def verify(
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="법령 청크를 벡터 파일을 거쳐 Qdrant에 적재하고 검증한다 (장부는 쓰지 않음).")
+    parser = argparse.ArgumentParser(description="법령 청크를 벡터 파일을 거쳐 Qdrant에 적재하고 검증한다 (장부 등록은 서버가 한다).")
     parser.add_argument("--chunks", type=Path, default=Path("out/law/05_chunks.jsonl"), help="청크 파일 (같은 폴더에 06_validation.json, chunk_index_map.json)")
     parser.add_argument("--dataset-id", default=None, help="벡터 파일 이름 (기본: law-<시행일>). 같은 이름이면 파일을 덮어쓴다")
     parser.add_argument("--vector-dir", type=Path, default=Path("out/vectors"),
@@ -753,7 +819,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력 (접속·파일 쓰기 없음)")
     parser.add_argument("--verify-only", action="store_true", help="올리기 없이 검증만")
     parser.add_argument("--skip-save", action="store_true", help="벡터 파일을 새로 만들지 않고 이미 있는 파일을 올린다 (재임베딩 없음)")
-    parser.add_argument("--no-load", action="store_true", help="벡터 파일만 만들고 Qdrant에는 올리지 않는다")
+    parser.add_argument("--no-load", action="store_true", help="벡터 파일만 만들고 Qdrant에는 올리지 않는다 (장부 id 확인용으로도 쓴다)")
+    parser.add_argument("--data-type", choices=("guides", "none"), default=DATA_TYPE,
+                        help="요청의 data_type. 서버는 <LOCAL_CHUNK_ROOT>/<data_type>/<subdir>/ 에서 청크를 읽는다 (기본 guides). "
+                             "none=보내지 않음(data_type이 없던 옛 서버)")
+    parser.add_argument("--subdir", default=SUBDIR, help="요청의 subdir (기본 law). --data-type none에서는 쓰지 않는다")
+    parser.add_argument("--update-index-map", action="store_true",
+                        help="대응표에 없는 조문에 새 chunk_index를 배정해 chunk_index_map.json을 갱신 (없으면 새로 만듦, .bak 보관)")
+    parser.add_argument("--require-ledger-ids", action=argparse.BooleanOptionalAction, default=True,
+                        help="모든 점에 kb_source_id·kb_chunk_id가 있어야 올림 (기본 켬, 끄려면 --no-require-ledger-ids)")
     parser.add_argument("--allow-remote", action="store_true", help="로컬이 아닌 kb-ingest/Qdrant 사용을 허용")
     parser.add_argument("--ingest-url", default=os.getenv("KB_INGEST_URL", "http://127.0.0.1:8001"))
     parser.add_argument("--qdrant-url", default=os.getenv("QDRANT_URL", "http://127.0.0.1:60011"))
@@ -764,12 +838,26 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--verify-only는 --skip-save·--no-load와 함께 쓸 수 없습니다.")
     if args.skip_save and args.no_load:
         parser.error("--skip-save와 --no-load를 함께 쓰면 할 일이 없습니다.")
+    if args.verify_only and args.update_index_map:
+        parser.error("--verify-only는 대응표를 바꾸지 않습니다. --update-index-map과 함께 쓸 수 없습니다.")
     if args.embedding_dim <= 0 or args.save_timeout <= 0:
         parser.error("--embedding-dim과 --save-timeout은 양수여야 합니다.")
+    if not DATASET_RE.match(args.subdir):
+        parser.error("--subdir이 서버 규칙(영문·숫자·._-, 100자 이하)에 맞지 않습니다.")
+    if args.data_type == "none" and args.subdir != SUBDIR:
+        parser.error("--data-type none(옛 서버 방식)에서는 subdir를 보내지 않으므로 --subdir을 바꿀 수 없습니다.")
     base = args.chunks.parent
     args.validation = base / VALIDATION_NAME
     args.index_map = base / INDEX_MAP_NAME
     return args
+
+
+def server_location(args: argparse.Namespace) -> tuple[str | None, str | None]:
+    """요청에 실을 (data_type, subdir). data_type이 none이면 둘 다 보내지 않는다(옛 서버). 속성이 없는 Namespace도 옛 방식으로 본다."""
+    data_type = getattr(args, "data_type", "none")
+    if data_type in (None, "none"):
+        return None, None
+    return data_type, getattr(args, "subdir", None) or SUBDIR
 
 
 def print_plan(
@@ -785,6 +873,11 @@ def print_plan(
     log(f"  첫 청크 {points[0].label}: point_id={points[0].point_id}")
     log(f"  마지막 청크 {points[-1].label}: point_id={points[-1].point_id}")
     log(f"대상: kb-ingest {target_of(args.ingest_url)}, Qdrant {target_of(args.qdrant_url)}")
+    data_type, subdir = server_location(args)
+    if data_type is None:
+        log("서버가 읽는 위치: LOCAL_CHUNK_DIR (옛 서버 방식: data_type·subdir를 보내지 않음)")
+    else:
+        log(f"서버가 읽는 위치: <LOCAL_CHUNK_ROOT>/{data_type}/{subdir}/{args.chunks.name} (요청에 data_type={data_type}, subdir={subdir})")
     steps = []
     if args.verify_only:
         steps.append("검증만")
@@ -795,7 +888,10 @@ def print_plan(
             steps.append("Qdrant 올리기 " + ("(호스트의 벡터 파일을 32개씩, 쓰기 키 필요)" if args.load_via == "file" else f"(POST {LOAD_ROUTE})"))
             steps.append("검증 (점 수, 전수 조회, 표본 벡터)")
     log("할 일: " + " → ".join(steps))
-    log("장부(agent_kb)는 쓰지 않습니다: 올라간 점의 kb_source_id·kb_chunk_id는 null입니다.")
+    if getattr(args, "require_ledger_ids", False):
+        log("장부 id(kb_source_id·kb_chunk_id): 없는 점이 있으면 올리지 않습니다 (검색 결과 doc_id에 필요)")
+    else:
+        log("장부 id(kb_source_id·kb_chunk_id): 필수로 보지 않습니다 (--no-require-ledger-ids)")
 
 
 def run(
@@ -810,7 +906,10 @@ def run(
     external_id = check_records(records, args.validation)
     if not CHUNK_FILE_RE.match(args.chunks.name):
         raise InputError(f"청크 파일 이름 {args.chunks.name!r}을 서버가 받지 못합니다 (영문·숫자·._- 와 .jsonl, 파일 이름만).")
-    indexes = load_index_map(args.index_map, external_id)
+    update_map = getattr(args, "update_index_map", False)
+    saved_map = load_index_map(args.index_map, external_id, allow_missing=update_map)
+    indexes = assign_indexes(records, saved_map) if update_map else saved_map
+    added = len(indexes) - len(saved_map)
     points = expected_points(records, indexes, external_id)
     dataset_id = check_dataset_id(args.dataset_id or default_dataset_id(records))
 
@@ -822,6 +921,8 @@ def run(
     check_target(args.ingest_url, args.qdrant_url, args.allow_remote)
 
     print_plan(records, external_id, points, dataset_id, args, log)
+    if update_map:
+        log(f"chunk_index 대응표: 새 번호 {added}개 (파일 {args.index_map})")
     if args.dry_run:
         log("\n[dry-run] 접속·파일 쓰기 없이 종료합니다.")
         return 0
@@ -843,12 +944,17 @@ def run(
     qdrant_key = (write_key or read_key) if need_load else read_key
     preflight(session, args.ingest_url, args.qdrant_url, qdrant_key, args.embedding_dim, routes=routes, log=log)
 
+    if update_map and added:  # 서버가 이 파일을 읽으므로 서버를 부르기 전에 쓴다
+        save_index_map(args.index_map, external_id, indexes)
+        log(f"대응표를 갱신했습니다: 새 번호 {added}개 (이전 파일은 {INDEX_MAP_NAME}.bak)")
+
     started = clock()
     count = len(points)
     if need_save:
         log(f"\n벡터 파일 만드는 중… (서버가 {count}개를 8개씩 임베딩합니다. 몇 분 걸릴 수 있습니다)")
+        data_type, subdir = server_location(args)
         body = save_vectors(session, args.ingest_url, token or "", chunk_file=args.chunks.name, dataset_id=dataset_id,
-                            count=count, timeout=args.save_timeout, sleep=sleep)
+                            count=count, data_type=data_type, subdir=subdir, timeout=args.save_timeout, sleep=sleep)
         log(f"벡터 파일: {body['file']} ({body['saved']}건, 모델 {body.get('model', '?')}, {clock() - started:.0f}초)")
         if args.no_load:
             log(f"\n[완료] 벡터 파일만 만들었습니다. 올리려면: --skip-save{' --env-file …' if args.load_via == 'file' else ''}")
@@ -856,7 +962,9 @@ def run(
 
     if use_file:
         vector_path = args.vector_dir / f"{dataset_id}.jsonl"
-        raw_points, problems = check_vector_file(vector_path, points, args.embedding_dim)
+        raw_points, problems = check_vector_file(
+            vector_path, points, args.embedding_dim, require_ledger_ids=getattr(args, "require_ledger_ids", False)
+        )
         if problems:
             raise IngestError("벡터 파일 검사에서 문제가 나와 올리지 않았습니다:\n  - " + "\n  - ".join(problems[:10]))
         log(f"벡터 파일 검사 통과: {len(raw_points)}점 ({vector_path})")
@@ -867,7 +975,10 @@ def run(
 
     if need_verify:
         log("\n검증 중…")
-        problems, notes = verify(session, args.qdrant_url, read_key or "", points, embedding_dim=args.embedding_dim)
+        problems, notes = verify(
+            session, args.qdrant_url, read_key or "", points, embedding_dim=args.embedding_dim,
+            require_ledger_ids=getattr(args, "require_ledger_ids", False),
+        )
         for note in notes:
             log(f"[참고] {note}")
         if problems:

@@ -1,4 +1,4 @@
-"""사고 데이터(SIF) 청크 파일을 벡터 파일로만 만든다. Qdrant에는 올리지 않고 장부(agent_kb)도 쓰지 않는다.
+"""사고 데이터(SIF) 청크 파일을 벡터 파일로만 만든다. Qdrant에는 올리지 않는다. 장부(agent_kb) 등록은 서버가 하며, 새 서버는 payload에 kb_source_id·kb_chunk_id를 채운다.
 
 kb-ingest의 POST /ingest/vectors/local/file (data_type=accidents)를 호출한다. 서버가 청크 파일(05_chunks.jsonl)을
 읽어 embed_text를 8개씩 임베딩하고 LOCAL_VECTOR_DIR/<dataset_id>.jsonl 에 {id, vector{dense,sparse}, payload}를 쓴다.
@@ -7,7 +7,8 @@ kb-ingest의 POST /ingest/vectors/local/file (data_type=accidents)를 호출한�
   1. 입력 검사: 05_chunks.jsonl (서버의 SIF 규칙을 호출 전에 같은 기준으로 검사), 같은 폴더의 06_validation.json
   2. 사전 점검: kb-ingest /ready, /ingest/vectors/local/file 경로, 요청 스키마에 data_type이 있는지(옛 서버 감지)
   3. 호출: {dataset_id, data_type=accidents, subdir, chunk_file[, validation_file]}. 응답의 저장 건수·파일·컬렉션·검증 방식 확인
-  4. 벡터 파일 검사(호스트에서 보이면): 기대 point id와 정확히 일치, dense 차원, sparse, payload가 05와 같은지
+  4. 벡터 파일 검사(호스트에서 보이면): 기대 point id와 정확히 일치, dense 차원, sparse, payload가 05와 같은지,
+     장부 id(kb_source_id·kb_chunk_id)는 둘 다 null이거나 둘 다 양의 정수 (--require-ledger-ids면 반드시 있어야 함)
   5. 파일 크기와 SHA256을 출력 (적재 스크립트에 넘기기 전 확인용)
 
 서버가 청크 파일을 읽는 위치
@@ -279,8 +280,14 @@ def _differs(expected: Any, actual: Any) -> bool:
     return expected != actual or type(expected) is not type(actual)
 
 
-def check_vector_file(path: Path, points: Sequence[ExpectedPoint], dim: int) -> tuple[int, list[str]]:
-    """서버가 만든 벡터 파일을 검사한다. (점 수, 문제 목록). 기대 point id와 정확히 일치해야 한다."""
+def check_vector_file(
+    path: Path, points: Sequence[ExpectedPoint], dim: int, *, require_ledger_ids: bool = False
+) -> tuple[int, list[str]]:
+    """서버가 만든 벡터 파일을 검사한다. (점 수, 문제 목록). 기대 point id와 정확히 일치해야 한다.
+
+    장부 id(kb_source_id·kb_chunk_id)는 둘 다 null(옛 서버)이거나 둘 다 양의 정수(새 서버)이고 kb_chunk_id는 겹치지 않는다.
+    require_ledger_ids 가 True 면 null 인 점도 문제로 본다 (검색 결과 doc_id가 비기 때문).
+    """
     if not path.is_file():
         raise IngestError(
             f"서버가 만든 벡터 파일이 호스트에 없습니다: {path}. kb-ingest의 LOCAL_VECTOR_DIR이 이 폴더에 마운트됐는지 "
@@ -289,6 +296,7 @@ def check_vector_file(path: Path, points: Sequence[ExpectedPoint], dim: int) -> 
     expected = {p.point_id: p for p in points}
     problems: list[str] = []
     seen: set[str] = set()
+    chunk_ids: dict[int, str] = {}
     with path.open(encoding="utf-8") as handle:
         for number, line in enumerate(handle, start=1):
             if not line.strip():
@@ -333,10 +341,19 @@ def check_vector_file(path: Path, points: Sequence[ExpectedPoint], dim: int) -> 
             ]
             if diffs:
                 problems.append(f"payload가 05와 다름 ({', '.join(diffs)}; 서버가 다른 청크 파일을 읽었을 수 있음): {label}")
-            for field in ("kb_source_id", "kb_chunk_id"):
-                if payload.get(field) is not None:
-                    problems.append(f"payload.{field}가 null이 아님: {label}")
-                    break
+            ledger = {name: payload.get(name) for name in ("kb_source_id", "kb_chunk_id")}
+            bad = [name for name, value in ledger.items() if value is not None and not (type(value) is int and value > 0)]
+            if bad:
+                problems.append(f"장부 id가 양의 정수나 null이 아님 ({', '.join(bad)}): {label}")
+            elif (ledger["kb_source_id"] is None) != (ledger["kb_chunk_id"] is None):
+                problems.append(f"kb_source_id와 kb_chunk_id 중 하나만 있음: {label}")
+            elif ledger["kb_chunk_id"] is None:
+                if require_ledger_ids:
+                    problems.append(f"장부 id(kb_source_id·kb_chunk_id)가 없음 (--require-ledger-ids): {label}")
+            elif ledger["kb_chunk_id"] in chunk_ids:
+                problems.append(f"kb_chunk_id {ledger['kb_chunk_id']}가 겹침: {label} / {chunk_ids[ledger['kb_chunk_id']]}")
+            else:
+                chunk_ids[ledger["kb_chunk_id"]] = label
     missing = [expected[pid].label for pid in expected if pid not in seen]
     if missing:
         problems.append(_short("벡터 파일에 없는 청크", missing, 8))
@@ -351,6 +368,21 @@ def file_digest(path: Path) -> tuple[int, str]:
             digest.update(block)
             size += len(block)
     return size, digest.hexdigest()
+
+
+def ledger_id_counts(path: Path) -> tuple[int, int]:
+    """벡터 파일에서 장부 id(kb_source_id·kb_chunk_id)가 둘 다 있는 점 수와 없는 점 수. 검사를 통과한 파일에 쓴다."""
+    with_ids = without_ids = 0
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            payload = json.loads(line).get("payload") or {}
+            if payload.get("kb_source_id") is not None and payload.get("kb_chunk_id") is not None:
+                with_ids += 1
+            else:
+                without_ids += 1
+    return with_ids, without_ids
 
 
 # ---------------------------------------------------------------- 실행
@@ -370,6 +402,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력 (접속·파일 쓰기 없음)")
     parser.add_argument("--check-only", action="store_true", help="API를 부르지 않고 이미 있는 벡터 파일만 검사")
     parser.add_argument("--skip-file-check", action="store_true", help="호스트의 벡터 파일 검사를 건너뜀 (마운트가 없을 때)")
+    parser.add_argument("--require-ledger-ids", action=argparse.BooleanOptionalAction, default=True,
+                    help="모든 점에 kb_source_id·kb_chunk_id가 있어야 통과 (기본 켬). 옛 서버 파일을 볼 때만 --no-require-ledger-ids")
     parser.add_argument("--allow-remote", action="store_true", help="로컬이 아닌 kb-ingest 사용을 허용")
     parser.add_argument("--ingest-url", default=os.getenv("KB_INGEST_URL", "http://127.0.0.1:8001"))
     parser.add_argument("--embedding-dim", type=int, default=int(os.getenv("EMBEDDING_DIM", "1024")))
@@ -437,7 +471,7 @@ def run(
     else:
         log(f"  [주의] {validation_path} 가 없어 구조 검사만 합니다 (structural)")
     log(f"  첫 점 {points[0].label} → {points[0].point_id}")
-    log("Qdrant에는 올리지 않고 장부(agent_kb)도 쓰지 않습니다. 올리기는 별도 적재 스크립트로 하세요.")
+    log("Qdrant에는 올리지 않습니다 (서버가 장부 id를 채울 수 있습니다). 올리기는 별도 적재 스크립트로 하세요.")
     if args.dry_run:
         log("\n[dry-run] 접속·파일 쓰기 없이 종료합니다.")
         return 0
@@ -465,7 +499,9 @@ def run(
     if args.skip_file_check:
         log("[참고] 호스트의 벡터 파일 검사를 건너뛰었습니다. 적재 전에 --check-only 로 검사하세요.")
         return 0
-    seen, problems = check_vector_file(vector_path, points, args.embedding_dim)
+    seen, problems = check_vector_file(
+        vector_path, points, args.embedding_dim, require_ledger_ids=getattr(args, "require_ledger_ids", False)
+    )
     if problems:
         shown = "\n  - ".join(problems[:20]) + (f"\n  - … 외 {len(problems) - 20}건" if len(problems) > 20 else "")
         raise IngestError(f"벡터 파일 검사에서 문제가 나왔습니다 ({vector_path}):\n  - {shown}\n같은 명령을 다시 실행하면 파일을 덮어씁니다.")
@@ -473,7 +509,10 @@ def run(
     log(f"\n[완료] 벡터 파일 검사 통과: {seen}점, dense {args.embedding_dim}차원, sparse 있음, payload가 05와 같음")
     log(f"  파일: {vector_path} ({size:,} 바이트)")
     log(f"  SHA256: {digest}")
-    log("  kb_source_id·kb_chunk_id는 null입니다 (장부 연결 없음). Qdrant 올리기는 별도 적재 스크립트로 하세요.")
+    with_ids, without_ids = ledger_id_counts(vector_path)
+    note = "" if without_ids == 0 else " — 없는 점은 검색 결과 doc_id가 비게 됩니다"
+    log(f"  장부 id(kb_source_id·kb_chunk_id): 있음 {with_ids}점 / 없음 {without_ids}점{note}")
+    log("  Qdrant 올리기는 별도 적재 스크립트로 하세요.")
     return 0
 
 
