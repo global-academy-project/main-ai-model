@@ -217,7 +217,7 @@ def test_extract_engine_limits_generation_time():
     from app.llm.engines.llm_confined_space_gate import ConfinedSpaceGateClient
 
     options = ConfinedSpaceGateClient().generate_options()
-    assert 0 < options["max_time"] < 30   # Spring 대기(APP_EXTRACT_LLM_TIMEOUT_SECONDS 기본 30초)보다 짧게
+    assert 0 < options["max_time"] < 50   # Spring 대기(APP_EXTRACT_LLM_TIMEOUT_SECONDS 기본 50초)보다 짧게
     assert not {"max_new_tokens", "do_sample"} & set(options)
 
 

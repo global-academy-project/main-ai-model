@@ -23,7 +23,9 @@ from ._base import EngineSpec, build_config
 ENGINE_NAME = "CONFINED_SPACE_GATE"  # app/core/config.py의 Engine 이름
 OWNER = "C"
 
-_MAX_SECONDS = 25.0  # 추출 생성 시간 제한 (generate_options 의 max_time). Spring 대기 30초보다 짧게
+# 추출 생성 시간 제한 (generate_options 의 max_time). Spring 대기(APP_EXTRACT_LLM_TIMEOUT_SECONDS 기본 50초)보다 짧게.
+# 11/12: 25 → 45초. 밀폐 측정값 5개 + 감시인만 적어도 CPU에서 약 27초라 잘렸다. 보통 문장은 평균 14초로 그대로
+_MAX_SECONDS = 45.0
 
 SPEC = EngineSpec(
     model_id=None,          # 예: "Qwen/Qwen3-1.7B" 또는 로컬 경로 "D:/models/qwen3-1.7b". None이면 default 모델
@@ -67,9 +69,10 @@ class ConfinedSpaceGateClient(LLMClient):
     def generate_options(self) -> dict:
         """generate()에 더 넘길 인자 (max_new_tokens·do_sample은 넣을 수 없다).
 
-        max_time: 생성 시간 제한(초). 넘으면 transformers 가 그 자리에서 멈춘다 → JSON 이 덜 끝나 LLMError(502)
+        max_time: 생성 시간 제한(초). 넘으면 transformers 가 그 자리에서 멈춘다 → 어댑터(줄 형식)는 끝까지 쓴 줄만 쓰고,
+        긴 프롬프트(JSON)는 JSON 이 덜 끝나 LLMError(502)
         → Spring 은 사전(규칙) 추출 결과로 보여 준다. 생성 잠금을 빨리 풀어 같은 모델을 쓰는 다른 엔진이 오래 기다리지 않게 한다.
-        Spring 대기(APP_EXTRACT_LLM_TIMEOUT_SECONDS, 기본 30초)보다 짧게 둔다 (프롬프트 읽는 시간은 이 안에 들어간다).
+        Spring 대기(APP_EXTRACT_LLM_TIMEOUT_SECONDS, 기본 50초)보다 짧게 둔다 (프롬프트 읽는 시간은 이 안에 들어간다).
         """
         return {"max_time": _MAX_SECONDS}
     #

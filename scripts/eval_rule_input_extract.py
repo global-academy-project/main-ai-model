@@ -77,7 +77,7 @@ def main() -> int:
     print(f"문항 {n}개 · 모델 {llm.name} · 출력 상한 {max_tokens}토큰")
     print(f"측정값 맞음 {m_ok}/{n} ({m_ok / n:.0%}) · 정답과 다른 값(지어냄·틀림) {invented}개")
     print(f"작업 종류 맞음 {t_ok}/{n} ({t_ok / n:.0%}) · 감시자 맞음 {w_ok}/{n} ({w_ok / n:.0%})")
-    print(f"문항당 평균 {sum(elapsed) / n:.1f}초 · 최대 {max(elapsed):.1f}초 (Spring 대기 30초, 생성 제한 25초)")
+    print(f"문항당 평균 {sum(elapsed) / n:.1f}초 · 최대 {max(elapsed):.1f}초 (Spring 대기 50초, 생성 제한 45초)")
     if len(by_tag) > 1:
         print("유형별 (측정값·작업·감시자 모두 맞음)")
         for name, (ok, total) in by_tag.items():
