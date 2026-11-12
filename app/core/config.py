@@ -3,9 +3,6 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
-
-rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
-
 """애플리케이션 설정.
 
 환경 변수와 `.env` 파일에서 값을 읽어 `Settings`로 제공한다.
@@ -114,9 +111,12 @@ class Settings(BaseSettings):
     stt_beam_size: int = Field(default=1, ge=1, le=5)                        # 1 이 가장 빠름. 정확도가 부족하면 늘린다
     stt_max_seconds: float = Field(default=35.0, gt=0, le=120)               # 이보다 긴 녹음은 422 (Spring 은 30초에서 끊음)
 
-    # A의 검색 함수 위치 '모듈경로:함수이름' (예: app.rag.tool_backend:build_search_backend).
-    # 비우면 mock 검색 도구를 그대로 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
-    rag_backend: str | None = None
+    # 검색 도구를 A의 RAG 로 쓸지 mock 으로 쓸지. True=RAG (기본), False=mock.
+    # Qdrant·임베딩 서버가 없는 PC 에서만 .env 에 RAG_ENABLED=false 로 끈다 (커밋 없이 내 PC 만 꺼진다).
+    rag_enabled: bool = True
+    # A의 검색 함수 위치 '모듈경로:함수이름'. rag_enabled 가 True 일 때만 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
+    # 위치만 코드에 둔다. 접속 정보(EMBEDDING_URL, EMBEDDING_API_KEY, QDRANT_URL, QDRANT_READ_ONLY_API_KEY)는 환경변수다.
+    rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -126,6 +126,11 @@ class Settings(BaseSettings):
     )
 
     chat_scenarios: str = CHAT_SCENARIOS
+
+    @property
+    def rag_backend_path(self) -> str | None:
+        """에이전트가 쓸 RAG 검색 함수 위치. rag_enabled 가 False 이거나 값이 비어 있으면 None (mock)."""
+        return ((self.rag_backend or "").strip() or None) if self.rag_enabled else None
 
     @property
     def available_engines(self) -> list[str]:
