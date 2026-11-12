@@ -10,6 +10,7 @@
   - 항목 단위가 아닌 단위 ("암모니아 2%"): Spring 이 비우고 "기준 단위는 ~"
   - 같은 항목에 다른 값 (둘 다 넘김): Spring 이 비우고 "값이 둘 이상입니다 (…). 하나만 적어 주세요"
     (어느 항목인지 사용자에게 알려 주려면 Spring 이 두 값을 다 봐야 한다. 같은 값이 두 번이면 하나만 넘김)
+어댑터 출력은 JSON 대신 줄 형식이다 (11/12, 아래 format_lines·lines_to_raw). 검사는 같다.
 """
 
 from __future__ import annotations
@@ -103,6 +104,64 @@ def parse_rule_input(raw: dict[str, Any] | None, text: str, items: list[str], wo
         evidence = _str(raw.get("watcherEvidence"))
         out.watcher_evidence = evidence if evidence and evidence in text else None
     return out
+
+
+# ---------------------------------------------------------------- 어댑터 줄 형식 (11/12)
+# 어댑터는 JSON 대신 한 줄에 하나씩 쓴다 (출력 토큰이 절반 가까이로 줄어 CPU 생성 제한 시간 안에 들어오게).
+#   측정값  O2|20.3|PCT|산소농도 20.3프로      (항목|값|단위|근거, 단위가 없으면 -)
+#   작업    W|CONFINED|탱크 안 진입             (W|종류|근거)
+#   감시자  S|한다은|감시자 한다은              (S|이름|근거)
+#   없음    뽑을 것이 없으면 이 한 줄
+# lines_to_raw 가 JSON 과 같은 dict 로 바꾸고, 검사는 parse_rule_input 이 그대로 한다. Spring 응답 모양은 같다.
+# 근거는 마지막 칸이라 원문에 | 가 있어도 그대로 받는다. 생성이 중간에 끊긴 마지막 줄은 칸이 모자라 버리거나,
+# 근거 숫자가 값과 달라 parse_rule_input 이 버린다 (끊긴 숫자를 값으로 쓰지 않음).
+NONE_LINE = "없음"
+NO_UNIT = "-"
+
+
+def format_lines(raw: dict[str, Any]) -> str:
+    """정답 dict (JSON 과 같은 모양) → 줄 형식. 학습 데이터 생성기가 쓴다."""
+    lines = [f"{m['item']}|{m['value']}|{m['unit'] or NO_UNIT}|{m['evidence']}" for m in raw.get("measurements") or []]
+    lines += [f"W|{w['type']}|{w['evidence']}" for w in raw.get("workTypes") or []]
+    if raw.get("watcherName"):
+        lines.append(f"S|{raw['watcherName']}|{raw.get('watcherEvidence') or ''}")
+    return "\n".join(lines) or NONE_LINE
+
+
+def lines_to_raw(output: str) -> dict[str, Any] | None:
+    """모델 출력(줄 형식) → parse_rule_input 이 받는 dict. 알아볼 줄이 하나도 없으면 None (JSON 아님과 같이 실패)."""
+    measurements: list[dict[str, Any]] = []
+    work_types: list[dict[str, Any]] = []
+    raw: dict[str, Any] = {"measurements": measurements, "workTypes": work_types,
+                           "watcherName": None, "watcherEvidence": None}
+    known = False
+    for line in output.splitlines():
+        line = line.strip()
+        if line == NONE_LINE:
+            known = True
+            continue
+        head, sep, rest = line.partition("|")
+        head = head.strip().upper()
+        if not sep:
+            continue
+        if head == "W":
+            kind, sep, evidence = rest.partition("|")
+            if sep:
+                work_types.append({"type": kind.strip(), "evidence": evidence.strip()})
+                known = True
+        elif head == "S":
+            name, sep, evidence = rest.partition("|")
+            if sep and raw["watcherName"] is None:
+                raw["watcherName"], raw["watcherEvidence"] = name.strip(), evidence.strip() or None
+                known = True
+        elif head in ITEM_UNITS:
+            parts = rest.split("|", 2)
+            if len(parts) == 3:
+                value, unit, evidence = (p.strip() for p in parts)
+                measurements.append({"item": head, "value": value,
+                                     "unit": None if unit == NO_UNIT else unit, "evidence": evidence})
+                known = True
+    return raw if known else None
 
 
 def _contains_number(evidence: str, value: Decimal) -> bool:

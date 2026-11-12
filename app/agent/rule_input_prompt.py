@@ -89,10 +89,13 @@ def build_system_prompt(items: list[str], work_types: list[str]) -> str:
 # 학습한 어댑터는 형식·규칙을 익혀서 위의 긴 프롬프트(약 1,000토큰)가 필요 없다 → 프롬프트 읽는 시간을 줄인다.
 # 학습 데이터(scripts/make_extract_train.py)와 실행이 반드시 같은 문구를 써야 한다. 바꾸면 다시 학습한다.
 # 기준: 적힌 대로 뽑는다. 단위가 없으면 unit null, 다른 단위도 적힌 대로, 같은 항목이 두 번이면 둘 다. 판단은 Spring.
-ADAPTER_SYSTEM_PROMPT = """작업 문장에서 측정값·작업 종류·감시자를 JSON 하나로 뽑는다. 판정·설명 없이 JSON만 쓴다.
-측정 항목: O2 산소, CO2 이산화탄소, LEL 가연성가스, H2S 황화수소, CO 일산화탄소, NH3 암모니아, CL2 염소
-작업: HOT 화기, CONFINED 밀폐공간, HEIGHT 고소(높이 2m 이상)
-단위: PCT(%), PPM(ppm), PCT_LEL(%LEL). 적힌 단위가 없으면 null. 숫자와 근거는 원문 그대로 쓴다."""
+# 11/12: 출력을 JSON 에서 줄 형식으로 바꿈 (출력 토큰을 줄여 CPU 25초 생성 제한 안에 들어오게).
+# 이 문구를 바꾸면 어댑터를 다시 학습해야 한다 (학습 데이터 scripts/make_extract_train.py 가 이 문구를 그대로 쓴다).
+ADAPTER_SYSTEM_PROMPT = """작업 문장에서 측정값·작업 종류·감시자를 한 줄에 하나씩 뽑는다. 판정·설명 없이 줄만 쓴다.
+측정값 줄: 항목|값|단위|근거. 항목 O2 산소, CO2 이산화탄소, LEL 가연성가스, H2S 황화수소, CO 일산화탄소, NH3 암모니아, CL2 염소
+단위: PCT(%), PPM(ppm), PCT_LEL(%LEL). 적힌 단위가 없으면 -. 값과 근거는 원문 그대로 쓴다.
+작업 줄: W|종류|근거. HOT 화기, CONFINED 밀폐공간, HEIGHT 고소(높이 2m 이상)
+감시자 줄: S|이름|근거. 뽑을 것이 없으면 없음 한 줄."""
 
 
 def build_adapter_messages(text: str) -> list[dict[str, str]]:
