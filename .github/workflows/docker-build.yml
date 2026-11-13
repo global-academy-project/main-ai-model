@@ -1,0 +1,36 @@
+name: Docker Build Workflow
+
+on:
+    pull_request:
+        types: [opened, reopened, synchronize]
+
+jobs:
+    build:
+        runs-on: ubuntu-24.04
+        strategy:
+            fail-fast: false
+            matrix:
+                target: [ai, embedding, ingest]
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7.0.1
+
+            # Buildx는 tour-learn-collection/docker-and-kubernetes/example/server README.md에 해당 기능에 대해 설명되어 있지만 
+            # 여기서는 GitHub Actions에서 Docker 이미지를 별도의 다양한 플랫폼에서 빌드하기 위해 사용된다.
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v4.4.1
+              with:
+                install: true
+
+            - name: Verify Docker Buildx
+              run: |
+                  docker buildx version
+            
+            # 현재 진행하는 프로젝트 AI 모델 관련 Docker 이미지는 Multi-stage 빌드를 사용하기 때문에,
+            # 각 단계별로 필요한 이미지들을 `--target` 옵션을 통해 지정하여 빌드한다.
+            - name: Build Docker image
+              run: |
+                docker buildx build \
+                --target "${{ matrix.target }}" \
+                --tag "ci-${{ matrix.target }}:sha-${GITHUB_SHA::12}" \
+                --load .
