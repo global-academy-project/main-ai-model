@@ -30,6 +30,7 @@ from datetime import date
 
 from app.schemas.agent_work import MAX_UTTERANCES, MissingField, WorkSlots
 
+from . import time_reader
 from .clarify import MARKER_PATTERN, TIME_KEYS, ampm_fields, is_unmarked, resolve_answer, to_24h
 from .text_rules import EQUIPMENT, MATERIALS, extract_locations, find_terms, is_negated, sentences, unique
 from .work_date import extract_work_date
@@ -209,6 +210,22 @@ def extract_slots(
     ):
         found["end_time"] = hhmm
 
+    if time_reader.TIME_READER_V2:  # 시각 읽기 개선 (time_reader.py): 위에서 읽은 시각을 버리고 단서·모순 판정으로 다시 읽는다. False면 위 코드 그대로
+        for key in TIME_KEYS:
+            found.pop(key, None)
+        if unmarked is not None:
+            unmarked.difference_update(TIME_KEYS)
+        reading = time_reader.read_times(message, expecting)
+        if reading.blank:  # 이 발화 안의 모순·야간: 시작·종료를 둘 다 비운다 (None은 병합할 때 이전 값도 지운다)
+            found["start_time"] = found["end_time"] = None
+        else:
+            if reading.start:
+                found["start_time"] = reading.start
+            if reading.end:
+                found["end_time"] = reading.end
+            if unmarked is not None:
+                unmarked.update(reading.unmarked)
+
     # 한 발화에 같은 항목이 다른 값으로 두 번 나오면('산소 19%, 환기 후 산소 20.9%') 어느 값인지 정하지 않는다.
     # 값이 비면 규칙이 MISSING으로 승인을 막고, 다음 발화에서 한 값만 말하면 그 값을 쓴다.
     values: dict[str, set[float]] = {}
@@ -241,7 +258,7 @@ def _read_short_answer(message: str, expecting: Sequence[str], unmarked: set[str
             out["measurements"] = {"LEL": float(m.group(2))}
     # 시각만 온 답: 시작·종료를 함께 물었으면 어느 쪽인지 모른다 ('10시부터 12시까지'는 extract_slots가 읽는다)
     asked_times = [k for k in ("start_time", "end_time") if k in expecting]
-    if len(asked_times) == 1:
+    if len(asked_times) == 1 and not time_reader.TIME_READER_V2:  # V2는 time_reader가 읽는다
         if (m := _BARE_TIME_RE.match(message)) and (hhmm := _to_hhmm(m, end=asked_times[0] == "end_time")):
             out[asked_times[0]] = hhmm
             _note_unmarked(unmarked, asked_times[0], m)
@@ -324,7 +341,12 @@ def merge_slots(previous: WorkSlots | None, message: str, *, today: date | None 
         base["end_time"] = None
     if base.get("end_time") is None and held.get("end_time") and base.get("start_time") is not None:
         base["end_time"] = held["end_time"]  # 종료를 먼저 말했고 이제 시작이 확정됐다
-    base["end_time"] = _afternoon_end(base.get("start_time"), base.get("end_time"))
+    if time_reader.TIME_READER_V2:
+        # 같은 날 안에서 시작·종료가 맞지 않으면 (이전 값과 새 값의 모순 포함) 둘 다 비우고 되묻는다. 12시간 보정은 하지 않는다
+        if time_reader.conflict_kind(base.get("start_time"), base.get("end_time")):
+            base["start_time"] = base["end_time"] = None
+    else:
+        base["end_time"] = _afternoon_end(base.get("start_time"), base.get("end_time"))
     return WorkSlots.model_validate(base)
 
 
@@ -363,6 +385,8 @@ def missing_fields(slots: WorkSlots, work_types: Sequence[str]) -> list[MissingF
     ):
         keys.append("lel")
     fields = [MissingField(key=k, label=_QUESTIONS[k][0], question=_QUESTIONS[k][1]) for k in keys]
+    if time_reader.TIME_READER_V2:  # 시간 되묻기 문구: '~부터 ~까지' 예시와 읽지 못한 이유 (time_reader.retext)
+        fields = time_reader.retext(fields, slots.utterances)
     return ampm_fields(fields, _held_times(slots))
 
 
@@ -398,5 +422,6 @@ def _required_keys(slots: WorkSlots, work_types: Sequence[str]) -> list[str]:
 
 def ask_message(missing: Sequence[MissingField]) -> str:
     lines = ["초안을 만들려면 몇 가지가 더 필요합니다."]
-    lines += [f"{i}. {f.question}" for i, f in enumerate(missing, 1)]
+    questions = list(dict.fromkeys(f.question for f in missing))  # 시작·종료 문구가 같으면 한 줄 (time_reader.retext)
+    lines += [f"{i}. {q}" for i, q in enumerate(questions, 1)]
     return "\n".join(lines)
