@@ -38,6 +38,26 @@ def test_normalize_measurements(spoken, written):
     assert normalize(spoken) == written
 
 
+# 사람 목소리 시험(11/13)에서 실제로 받아 적은 글 → 고친 글. 고칠 수 없는 것(숫자가 글자로 바뀜·소수점 아래가 사라짐·이름)은 그대로
+@pytest.mark.parametrize("heard, written", [
+    ("탄산가스 05% 감시인은 김도윤입니다", "탄산가스 0.5% 감시인은 김도윤입니다"),
+    ("이산화탄소 03% 암모니아 10ppm 염소 05 ppm", "이산화탄소 0.3% 암모니아 10ppm 염소 0.5ppm"),
+    ("이산화탄소 0.3% 암모니아 cppm 염소 영점 오피피엘", "이산화탄소 0.3% 암모니아 cppm 염소 0.5ppm"),
+    ("산소 20% 9% 황화수소 3ppm 일산화탄소 5 ppm입니다", "산소 20.9% 황화수소 3ppm 일산화탄소 5ppm입니다"),
+    ("황화수소 사 피피엔", "황화수소 4ppm"),
+    ("황화수소 4 피피엘", "황화수소 4ppm"),
+    ("산소 20% 황화수소 3ppm 일산화탄소 5ppm입니다", "산소 20% 황화수소 3ppm 일산화탄소 5ppm입니다"),
+    ("산소 20.9% 일산화탄소 2ippm 입구에 박진우 대기합니다", "산소 20.9% 일산화탄소 2ippm 입구에 박진우 대기합니다"),
+])
+def test_normalize_heard_in_human_test(heard, written):
+    assert normalize(heard) == written
+
+
+@pytest.mark.parametrize("text", ["산소 20.5% 0%", "가연성가스 0% 산소 21%", "산소 10% 5명", "1.05%", "산소 20%, 탄산가스 5%"])
+def test_normalize_keeps_real_values(text):
+    assert normalize(text) == text   # 이미 맞는 값·소수·다른 말이 끼인 % 는 건드리지 않는다
+
+
 @pytest.mark.parametrize("text", ["이 작업은 오늘 오후에", "산소 이상 없음", "삼성 산소 이삼"])
 def test_normalize_leaves_other_korean(text):
     assert normalize(text) == text   # 조사·낱말 속 "이"·"오"·"삼" 은 숫자로 바꾸지 않는다
