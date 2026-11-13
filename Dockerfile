@@ -58,6 +58,20 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.ingest.txt \
     && /opt/venv/bin/python -m pip check
 
+FROM ingest-dependencies AS ingest
+
+USER 65003:65003
+
+COPY app/ingest_main.py ./app/
+COPY app/ingest/ ./app/ingest/
+COPY app/publicdata/ ./app/publicdata/
+
+EXPOSE 8001
+
+CMD ["uvicorn", "app.ingest_main:app", "--host", "0.0.0.0", "--port", "8001"]
+
+#-------------------------[Multi-stage build Qdrant init image]---------------------------------------
+
 FROM base AS qdrant-init
 
 USER 65003:65003
@@ -71,14 +85,4 @@ COPY scripts ./scripts
 
 CMD ["python", "-m", "scripts.init_qdrant"]
 
-FROM ingest-dependencies AS ingest
-
-USER 65003:65003
-
-COPY app/ingest_main.py ./app/
-COPY app/ingest/ ./app/ingest/
-COPY app/publicdata/ ./app/publicdata/
-
-EXPOSE 8001
-
-CMD ["uvicorn", "app.ingest_main:app", "--host", "0.0.0.0", "--port", "8001"]
+#-------------------------[End of Dockerfile]---------------------------------------
