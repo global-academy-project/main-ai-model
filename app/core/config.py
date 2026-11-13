@@ -3,6 +3,9 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
+
+rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
+
 """애플리케이션 설정.
 
 환경 변수와 `.env` 파일에서 값을 읽어 `Settings`로 제공한다.
@@ -42,7 +45,7 @@ SCENARIO_MODELS: dict[str, dict[str, str]] = {
     "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-0.6B"},  # C · 밀폐공간 작업 → 기준 미달 차단 (문장 추출. E와 같은 1.7B를 같이 씀, 어댑터 extract)
     # "C": {"engine": "NEAR_MISS_WARNING", "model_id": "모델 이름"},  # A · 아차사고 보고 → 다음 작업 경고
     "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-1.7B"},  # D · 마감 현황·TBM·안전일지 기록 질의
-     "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-0.6B"},  # D · 감사 대응 질의
+    "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-0.6B"},  # D · 감사 대응 질의
     # "F": {"engine": "SMALL_SITE_GUIDE", "model_id": "모델 이름"},  # B · 소규모 사업장 안내
 }
 
@@ -59,7 +62,7 @@ class Settings(BaseSettings):
         openai_model: OpenAI 모델 이름. engine이 OPENAI일 때만 필요하다.
         ai_timeout_seconds: AI 호출 제한 시간(초).
         ai_max_output_tokens: AI 응답의 최대 출력 토큰 수.
-    """    
+    """
     network_env: Literal["OPEN", "CLOSED"]
 
     openai_api_key: SecretStr | None = None
@@ -100,6 +103,13 @@ class Settings(BaseSettings):
     vision_score_threshold: float = Field(default=0.4, gt=0, lt=1)       # 이 점수 미만 사람 박스는 버림
     vision_nms_threshold: float = Field(default=0.45, gt=0, lt=1)        # 이보다 많이 겹치면 점수 높은 박스만 남김
     vision_threads: int | None = Field(default=None, ge=1, le=64)        # ONNX CPU 스레드 수. 비우면 onnxruntime 기본 (1.7B 생성과 CPU 를 나눠 쓸 때 줄인다)
+    # 안전모 (C, 11/13). SHWD + Hard Hat Detection 으로 학습한 YOLOX-Nano (클래스: 안전모 쓴 머리, 맨머리).
+    #   VISION_HELMET_MODEL_PATH 예) /models/yolox/helmet_nano.onnx. 비우면 안전모를 보지 않는다 (사람 수만, helmetMissing null)
+    #   인원 = 머리 수 + 머리가 안 보이는 사람 박스 수, 안전모 미착용 = 맨머리 수
+    vision_helmet_model_path: str | None = None
+    vision_helmet_input_size: int = Field(default=640, ge=64, le=1280)   # 학습한 입력 크기와 같게 (작은 머리가 많아 640)
+    vision_helmet_score_threshold: float = Field(default=0.4, gt=0, lt=1)   # 안전모 쓴 머리
+    vision_head_score_threshold: float = Field(default=0.5, gt=0, lt=1)     # 맨머리(미착용): 더 확실할 때만 센다
 
     # 음성 → 글 (C, Whisper small 을 faster-whisper 로). 모델 폴더는 로컬만 읽는다 (scripts/download_models.py --only stt).
     #   STT_MODEL_PATH 예) /models/whisper-small-ko. 비우거나 폴더가 없으면 /api/v1/stt/* 는 503 (Spring 은 "직접 적어 주세요")
@@ -118,7 +128,7 @@ class Settings(BaseSettings):
     # A의 검색 함수 위치 '모듈경로:함수이름'. rag_enabled 가 True 일 때만 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
     # 위치만 코드에 둔다. 접속 정보(EMBEDDING_URL, EMBEDDING_API_KEY, QDRANT_URL, QDRANT_READ_ONLY_API_KEY)는 환경변수다.
     rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
-    
+   
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -129,15 +139,10 @@ class Settings(BaseSettings):
     chat_scenarios: str = CHAT_SCENARIOS
 
     @property
-    def rag_backend_path(self) -> str | None:
-        """에이전트가 쓸 RAG 검색 함수 위치. rag_enabled 가 False 이거나 값이 비어 있으면 None (mock)."""
-        return ((self.rag_backend or "").strip() or None) if self.rag_enabled else None
-
-    @property
     def available_engines(self) -> list[str]:
         """선언된 모든 엔진 이름을 반환한다."""
         return list(get_args(Engine))
-    
+
     def is_engine_blocked(self, engine: Engine) -> bool:
         """폐쇄망에서 외부 엔진을 쓰려는가."""
         return engine in EXTERNAL_ENGINES and self.network_env == "CLOSED"
@@ -150,7 +155,7 @@ class Settings(BaseSettings):
             if not self.openai_model:
                 return "OPENAI_MODEL이 필요합니다."
         return None
-    
+
     def engine_problem(self, engine: Engine) -> str | None:
         """기동 검증용: 막힘과 설정 문제를 합쳐 사유 하나로."""
         if self.is_engine_blocked(engine):
@@ -175,7 +180,7 @@ class Settings(BaseSettings):
         elif engine != "FAKE" and not getattr(self, "categorizator_model_id", None):
             return f"SCENARIO_ENGINES['{key}']: model_id 또는 CATEGORIZATOR_MODEL_ID가 필요합니다."
         return self.engine_problem(engine)  # 막힌 엔진, 설정 문제는 기존 규칙 그대로
-    
+
     @model_validator(mode="after")
     def validate_default_engine(self) -> "Settings":
         """기본 엔진이 실행 가능한지 기동 시점에 검증한다."""

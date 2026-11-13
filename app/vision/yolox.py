@@ -1,4 +1,5 @@
-"""YOLOX-Nano (Apache-2.0) ONNX 사람 검출. 공식 COCO 가중치는 사람만 센다 (안전모 클래스 없음 → 학습 후 추가).
+"""YOLOX-Nano (Apache-2.0) ONNX 사람 검출. 공식 COCO 가중치는 사람만 센다.
+안전모는 따로 학습한 YOLOX-Nano (클래스: 안전모 쓴 머리, 맨머리, 11/13)를 같은 방식으로 읽는다 (class_boxes).
 
 흐름: 사진 바이트 → EXIF 회전 적용(브라우저가 보여 주는 방향) → 416 정사각형에 비율 유지로 넣기(왼쪽 위 붙임, 회색 114)
       → ONNX 실행 → 격자 풀기(YOLOX demo_postprocess) → 사람 점수 = 물체 점수 × 사람 클래스 점수 → 기준 이상만 → NMS
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = "YOLOX-Nano"
 PERSON = 0          # COCO 클래스 번호
+HELMET_LABELS = ("helmet", "no_helmet")   # 안전모 모델 클래스 순서 (학습 COCO 의 helmet=1, head=2). 응답 라벨 이름
 STRIDES = (8, 16, 32)
 
 
@@ -128,16 +130,47 @@ def people_boxes(raw: np.ndarray, *, size: int, ratio: float, width: int, height
     return boxes
 
 
+def class_boxes(raw: np.ndarray, *, size: int, ratio: float, width: int, height: int, labels: tuple[str, ...],
+                thresholds: tuple[float, ...], nms_threshold: float) -> list[Box]:
+    """클래스가 여러 개인 모델(안전모) 출력 → 박스. 칸마다 점수가 가장 높은 클래스 하나만 보고, 클래스별 기준 이상만 남긴다.
+    NMS 는 클래스를 가리지 않고 함께 한다 (한 머리가 "안전모"와 "맨머리"로 두 번 잡히지 않게)."""
+    pred = decode(raw.reshape(-1, raw.shape[-1]), size)
+    cls = pred[:, 5:5 + len(labels)]
+    best = cls.argmax(axis=1)
+    scores = pred[:, 4] * cls[np.arange(len(best)), best]
+    mask = scores >= np.asarray(thresholds, dtype=np.float32)[best]
+    if not mask.any():
+        return []
+    pred, scores, best = pred[mask], scores[mask], best[mask]
+    cx, cy, bw, bh = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
+    xyxy = np.stack([cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2], axis=1) / ratio
+    boxes: list[Box] = []
+    for i in nms(xyxy, scores, nms_threshold):
+        x1, y1, x2, y2 = xyxy[i]
+        x1, x2 = np.clip([x1, x2], 0, width) / width
+        y1, y2 = np.clip([y1, y2], 0, height) / height
+        if x2 > x1 and y2 > y1:
+            boxes.append(Box(labels[int(best[i])], round(float(scores[i]), 4), round(float(x1), 4), round(float(y1), 4),
+                             round(float(x2 - x1), 4), round(float(y2 - y1), 4)))
+    return boxes
+
+
 class YoloxDetector:
-    """ONNX 세션을 한 번 만들어 재사용한다 (onnxruntime 의 run 은 여러 스레드에서 불러도 된다)."""
+    """ONNX 세션을 한 번 만들어 재사용한다 (onnxruntime 의 run 은 여러 스레드에서 불러도 된다).
+    labels 를 주면 클래스가 여러 개인 모델(안전모, thresholds 는 클래스별 기준)로, 주지 않으면 COCO 사람 검출로 읽는다."""
 
     def __init__(self, model_path: str | None, *, size: int = 416, score_threshold: float = 0.4,
-                 nms_threshold: float = 0.45, threads: int | None = None, session: Any = None) -> None:
+                 nms_threshold: float = 0.45, threads: int | None = None, session: Any = None,
+                 labels: tuple[str, ...] | None = None, thresholds: tuple[float, ...] | None = None,
+                 setting: str = "VISION_MODEL_PATH") -> None:
         self.model_path = model_path
         self.size = size
         self.score_threshold = score_threshold
         self.nms_threshold = nms_threshold
         self.threads = threads
+        self.labels = labels
+        self.thresholds = thresholds or (score_threshold,) * len(labels or ())
+        self.setting = setting
         self._session = session
         self._lock = threading.Lock()
 
@@ -146,7 +179,7 @@ class YoloxDetector:
             if self._session is not None:
                 return self._session
             if not self.model_path or not os.path.isfile(self.model_path):
-                raise VisionUnavailable(f"사진 인식 모델 파일이 없습니다 (VISION_MODEL_PATH={self.model_path}).")
+                raise VisionUnavailable(f"사진 인식 모델 파일이 없습니다 ({self.setting}={self.model_path}).")
             try:
                 import onnxruntime as ort
             except (ImportError, OSError) as exc:
@@ -165,5 +198,8 @@ class YoloxDetector:
         tensor, ratio = letterbox(image, self.size)
         raw = session.run(None, {session.get_inputs()[0].name: tensor})[0]
         width, height = image.size
+        if self.labels:
+            return class_boxes(np.asarray(raw), size=self.size, ratio=ratio, width=width, height=height,
+                               labels=self.labels, thresholds=self.thresholds, nms_threshold=self.nms_threshold)
         return people_boxes(np.asarray(raw), size=self.size, ratio=ratio, width=width, height=height,
                             score_threshold=self.score_threshold, nms_threshold=self.nms_threshold)

@@ -19,5 +19,5 @@ class VisionBox(CamelModel):
 class TbmPhotoVision(CamelModel):
     model: str = Field(description="인식 모델 이름 (photo_checks.model 에 남는다)")
     people: int | None = Field(default=None, description="사진 속 인원. 판단 못 하면 null")
-    helmet_missing: int | None = Field(default=None, description="안전모 미착용 인원. 학습 전에는 null")
+    helmet_missing: int | None = Field(default=None, description="안전모 미착용 인원(맨머리 수). 안전모 모델이 없으면 null")
     boxes: list[VisionBox] = Field(default_factory=list)
