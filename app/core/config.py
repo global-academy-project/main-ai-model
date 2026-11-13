@@ -76,7 +76,7 @@ class Settings(BaseSettings):
         le=100_000,
     )
 
-    check_rules_tool: Literal["MOCK", "SPRING"]
+    check_rules_tool: Literal["MOCK", "SPRING"] = "SPRING"
     internal_api_base_url: str | None = None
     internal_api_token: SecretStr | None = None
 
@@ -114,10 +114,11 @@ class Settings(BaseSettings):
     # 검색 도구를 A의 RAG 로 쓸지 mock 으로 쓸지. True=RAG (기본), False=mock.
     # Qdrant·임베딩 서버가 없는 PC 에서만 .env 에 RAG_ENABLED=false 로 끈다 (커밋 없이 내 PC 만 꺼진다).
     rag_enabled: bool = True
+
     # A의 검색 함수 위치 '모듈경로:함수이름'. rag_enabled 가 True 일 때만 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
     # 위치만 코드에 둔다. 접속 정보(EMBEDDING_URL, EMBEDDING_API_KEY, QDRANT_URL, QDRANT_READ_ONLY_API_KEY)는 환경변수다.
     rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
-
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -54,7 +54,7 @@ from app.schemas.agent_work import (
     WorkSlots,
 )
 
-from . import drafting
+from . import drafting, followup
 from .done_message import build_done_message
 from .evidence_collector import MAX_SUMMARY_CHARS, EvidenceCollector, EvidencePack, StepRecord, WorkContext
 from .plan_brief import MSDS_FIRST, PLAN_MODE, StagedCollector
@@ -124,15 +124,25 @@ class WorkRegisterAgent:
             raise AgentRunError(exc, steps=log.steps) from exc
 
     def _run(self, request: WorkRegisterRequest, log: _StepLog, tools: ToolInvoker) -> WorkRegisterResult:
-        # ① 되묻기
-        slots = merge_slots(request.slots, request.message)
+        # ① 되묻기 (DONE 뒤의 말은 followup.py가 먼저 가른다. DONE 뒤가 아니거나 FOLLOWUP_ENABLED=False면 follow는 None)
+        follow = followup.judge_followup(request.slots, request.message)
+        slots = follow.slots if follow is not None else merge_slots(request.slots, request.message)
         text = full_text(slots)[-MAX_CONTEXT_CHARS:]
         classification = Classification.model_validate(tools.call("classify_work", {"text": text}))
+        if follow is not None and follow.reply is not None:  # 무변경·새 작업 안내: 파이프라인을 돌리지 않는다
+            return WorkRegisterResult(
+                run_status="WAITING_INPUT",
+                slots=slots,
+                ask={"message": follow.reply, "missing_fields": []},
+                classification=classification,
+                steps=log.steps,
+            )
+        note = follow.note if follow is not None else ""  # 변경 요약·새 작업 안내 한 줄 (ask.message 앞)
         if missing := missing_fields(slots, classification.work_types):
             return WorkRegisterResult(
                 run_status="WAITING_INPUT",
                 slots=with_asked(slots, missing),
-                ask={"message": ask_message(missing), "missing_fields": missing},
+                ask={"message": note + ask_message(missing), "missing_fields": missing},
                 classification=classification,
                 steps=log.steps,
             )
@@ -225,7 +235,7 @@ class WorkRegisterAgent:
         return WorkRegisterResult(
             run_status="DONE",
             slots=slots,
-            ask={"message": build_done_message(drafts, request.mode), "missing_fields": []},
+            ask={"message": note + build_done_message(drafts, request.mode), "missing_fields": []},
             classification=classification,
             evidence=_evidence_summary(pack),
             msds=msds,
