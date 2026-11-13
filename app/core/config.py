@@ -135,6 +135,11 @@ class Settings(BaseSettings):
     chat_scenarios: str = CHAT_SCENARIOS
 
     @property
+    def rag_backend_path(self) -> str | None:
+        """에이전트가 쓸 RAG 검색 함수 위치. rag_enabled 가 False 이거나 값이 비어 있으면 None (mock)."""
+        return ((self.rag_backend or "").strip() or None) if self.rag_enabled else None
+    
+    @property
     def available_engines(self) -> list[str]:
         """선언된 모든 엔진 이름을 반환한다."""
         return list(get_args(Engine))
