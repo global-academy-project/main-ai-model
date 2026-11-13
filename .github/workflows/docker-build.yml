@@ -25,9 +25,12 @@ jobs:
             - name: Verify Docker Buildx
               run: |
                   docker buildx version
+                  docker buildx inspect --bootstrap
             
             # 현재 진행하는 프로젝트 AI 모델 관련 Docker 이미지는 Multi-stage 빌드를 사용하기 때문에,
             # 각 단계별로 필요한 이미지들을 `--target` 옵션을 통해 지정하여 빌드한다.
+            # 다만 현재는 각 타겟별로 독립적인 이미지를 빌드하고 있으며, 모든 타겟을 한 번에 빌드하는 것은 아니다. 하지만 작업하지 않은 이미지들도 함께
+            # 빌드 과정이 진행되기 때문에 해당 개선은 추후에 고려 대상이다.
             - name: Build Docker image
               run: |
                 docker buildx build \
