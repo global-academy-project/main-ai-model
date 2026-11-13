@@ -10,6 +10,10 @@ on:
         description: 'Branch to run the workflow on'
         required: false
         default: 'main'
+  workflow_run:
+    workflows: ["Docker Build Workflow"]
+    types: [completed]
+  
 
 permissions:
   contents: read
@@ -17,6 +21,12 @@ permissions:
   issues: write
 
 jobs:
+  after_build:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Docker 빌드 성공"
+
   pull_request_apply:
     # closed(머지 포함) 시 PR body가 다시 덮어써지지 않도록 특정 action에서만 실행
     if: >-
@@ -24,9 +34,10 @@ jobs:
       (github.event_name == 'pull_request' &&
        contains(fromJSON('["opened"]'), github.event.action))
     runs-on: ubuntu-24.04
+    needs: after_build
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Detect locale and update PR body
         shell: bash
@@ -48,7 +59,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Detect locale and update issue body
         shell: bash
