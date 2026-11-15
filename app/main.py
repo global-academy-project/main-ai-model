@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 import logging
@@ -19,7 +21,9 @@ from app.handlers.agent_run_handlers import (
     unhandled_error_handler,
     validation_error_handler,
 )
+from app.llm.llm_preload import preload_models
 from app.llm.llm_provider import LLMClientProvider
+from starlette.concurrency import run_in_threadpool
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,7 +33,15 @@ logging.basicConfig(
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # 기동 때 LLM 모델을 한 번 읽어 둔다 (LLM_PRELOAD, 기본 켬). 시험이 바꿔 끼운 provider 도 따르게 기동 시점의 app.state 를 읽는다
+        if settings.llm_preload:
+            await run_in_threadpool(preload_models, app.state.llm_provider)
+        yield
+
+    app = FastAPI(lifespan=lifespan)
 
     app.add_exception_handler(
         BusinessError,
