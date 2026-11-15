@@ -25,6 +25,9 @@ __COMMIT_SHA__
 - Build:
 - Test:
 
+## 보안 검사 (Trivy)
+__TRIVY_REPORT__
+
 ## 관련 이슈
 - Closes #
 - Related #
