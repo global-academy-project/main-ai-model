@@ -1,16 +1,19 @@
 name: Docker Build Workflow
 
 on:
-    pull_request:
-        types: [opened, reopened, synchronize]
+  workflow_call:
+    outputs:
+      summary:
+        description: Markdown summary of the Trivy image scans
+        value: ${{ jobs.build_and_scan.outputs.summary }}
 
 jobs:
-    build:
+    build_and_scan:
         runs-on: ubuntu-24.04
-        strategy:
-            fail-fast: false
-            matrix:
-                target: [ai, embedding, ingest]
+        outputs:
+            summary: ${{ steps.report.outputs.summary }}
+        env:
+            IMAGE_TAG: sha-${{ github.sha }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@v7.0.1
@@ -27,13 +30,82 @@ jobs:
                   docker buildx version
                   docker buildx inspect --bootstrap
             
-            # 현재 진행하는 프로젝트 AI 모델 관련 Docker 이미지는 Multi-stage 빌드를 사용하기 때문에,
-            # 각 단계별로 필요한 이미지들을 `--target` 옵션을 통해 지정하여 빌드한다.
-            # 다만 현재는 각 타겟별로 독립적인 이미지를 빌드하고 있으며, 모든 타겟을 한 번에 빌드하는 것은 아니다. 하지만 작업하지 않은 이미지들도 함께
-            # 빌드 과정이 진행되기 때문에 해당 개선은 추후에 고려 대상이다.
-            - name: Build Docker image
+            - name: Build Docker images
               run: |
-                docker buildx build \
-                --target "${{ matrix.target }}" \
-                --tag "ci-${{ matrix.target }}:sha-${GITHUB_SHA::12}" \
-                --load .
+                for target in ai embedding ingest; do
+                  docker buildx build \
+                    --target "$target" \
+                    --tag "ci-${target}:${IMAGE_TAG}" \
+                    --load .
+                done
+
+            - name: Scan AI image
+              uses: aquasecurity/trivy-action@v0.36.0
+              with:
+                  scan-type: image
+                  image-ref: ci-ai:${{ env.IMAGE_TAG }}
+                  format: json
+                  output: trivy-ai.json
+                  exit-code: '0'
+
+            - name: Scan embedding image
+              uses: aquasecurity/trivy-action@v0.36.0
+              with:
+                  scan-type: image
+                  image-ref: ci-embedding:${{ env.IMAGE_TAG }}
+                  format: json
+                  output: trivy-embedding.json
+                  exit-code: '0'
+
+            - name: Scan ingest image
+              uses: aquasecurity/trivy-action@v0.36.0
+              with:
+                  scan-type: image
+                  image-ref: ci-ingest:${{ env.IMAGE_TAG }}
+                  format: json
+                  output: trivy-ingest.json
+                  exit-code: '0'
+
+            - name: Build scan summary
+              id: report
+              shell: bash
+              run: |
+                  summary="$(jq -s '
+                    [to_entries[] as $file
+                     | $file.value.Results[]?.Vulnerabilities[]?
+                     | . + {Image: ["ai", "embedding", "ingest"][$file.key]}] as $v
+                    | "**검사 대상:** `ai`, `embedding`, `ingest` PR 이미지\n"
+                      + "**취약점 수:** CRITICAL "
+                      + ([$v[] | select(.Severity == "CRITICAL")] | length | tostring)
+                      + ", HIGH "
+                      + ([$v[] | select(.Severity == "HIGH")] | length | tostring)
+                      + ", MEDIUM "
+                      + ([$v[] | select(.Severity == "MEDIUM")] | length | tostring)
+                      + ", LOW "
+                      + ([$v[] | select(.Severity == "LOW")] | length | tostring)
+                      + (if ($v | length) == 0 then
+                           "\n\n취약점이 발견되지 않았습니다."
+                         else
+                           "\n\n**주요 항목 (최대 10개):**\n"
+                           + ([$v | sort_by(
+                                 if .Severity == "CRITICAL" then 0
+                                 elif .Severity == "HIGH" then 1
+                                 elif .Severity == "MEDIUM" then 2
+                                 else 3
+                                 end
+                               ) | .[:10][]
+                               | "- `" + (.VulnerabilityID // "unknown") + "` "
+                                 + (.Severity // "UNKNOWN") + " | `"
+                                 + (.Image // "unknown") + "` | `"
+                                 + (.PkgName // "unknown") + "` "
+                                 + (.InstalledVersion // "version unknown") + " -> "
+                                 + (.FixedVersion // "수정 버전 없음")]
+                              | join("\n"))
+                         end)
+                  ' trivy-ai.json trivy-embedding.json trivy-ingest.json)"
+                  delimiter="trivy_$(openssl rand -hex 16)"
+                  {
+                    printf 'summary<<%s\n' "$delimiter"
+                    printf '%s\n' "$summary"
+                    printf '%s\n' "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
