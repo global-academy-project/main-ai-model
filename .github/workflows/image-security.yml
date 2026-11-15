@@ -1,0 +1,77 @@
+name: Image Security Trivy Scan
+
+on:
+  workflow_call:
+    outputs:
+      summary:
+        description: Markdown summary of the Trivy image scan
+        value: ${{ jobs.trivy_scan.outputs.summary }}
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.Dockerfile'
+      - '**/docker-compose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trivy_scan:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        image: [ai, embedding, ingest]
+    outputs:
+      summary: ${{ steps.report.outputs.summary }}
+    steps:
+      - name: Scan temporary ${{ matrix.image }} image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ci-${{ matrix.image }}:sha-${{ github.sha }}
+          format: json
+          output: trivy-results.json
+          exit-code: '0'
+
+      - name: Build PR summary
+        id: report
+        shell: bash
+        run: |
+          summary="$(jq -r '
+            [.Results[]?.Vulnerabilities[]?] as $v
+            | "**검사 대상:** `ci-${{ matrix.image }}:sha-${{ github.sha }}` (임시 테스트 이미지)\n"
+              + "**취약점 수:** CRITICAL "
+              + ([$v[] | select(.Severity == "CRITICAL")] | length | tostring)
+              + ", HIGH "
+              + ([$v[] | select(.Severity == "HIGH")] | length | tostring)
+              + ", MEDIUM "
+              + ([$v[] | select(.Severity == "MEDIUM")] | length | tostring)
+              + ", LOW "
+              + ([$v[] | select(.Severity == "LOW")] | length | tostring)
+              + (if ($v | length) == 0 then
+                   "\n\n취약점이 발견되지 않았습니다."
+                 else
+                   "\n\n**주요 항목 (최대 10개):**\n"
+                   + ([$v | sort_by(
+                         if .Severity == "CRITICAL" then 0
+                         elif .Severity == "HIGH" then 1
+                         elif .Severity == "MEDIUM" then 2
+                         else 3
+                         end
+                       ) | .[:10][]
+                       | "- `" + (.VulnerabilityID // "unknown") + "` "
+                         + (.Severity // "UNKNOWN") + " | `"
+                         + (.PkgName // "unknown") + "` "
+                         + (.InstalledVersion // "version unknown") + " -> "
+                         + (.FixedVersion // "수정 버전 없음")]
+                      | join("\n"))
+                 end)
+          ' trivy-results.json)"
+          delimiter="trivy_$(openssl rand -hex 16)"
+          {
+            printf 'summary<<%s\n' "$delimiter"
+            printf '%s\n' "$summary"
+            printf '%s\n' "$delimiter"
+          } >> "$GITHUB_OUTPUT"
