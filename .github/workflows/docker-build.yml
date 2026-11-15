@@ -74,19 +74,24 @@ jobs:
                     [to_entries[] as $file
                      | $file.value.Results[]?.Vulnerabilities[]?
                      | . + {Image: ["ai", "embedding", "ingest"][$file.key]}] as $v
-                    | "**검사 대상:** `ai`, `embedding`, `ingest` PR 이미지\n"
-                      + "**취약점 수:** CRITICAL "
+                    | "### Docker 이미지 취약점 검사\n\n"
+                      + "**검사 대상:** `ai`, `embedding`, `ingest` PR 이미지\n\n"
+                      + "| 심각도 | 발견 수 |\n|:--|--:|\n"
+                      + "| **CRITICAL** | "
                       + ([$v[] | select(.Severity == "CRITICAL")] | length | tostring)
-                      + ", HIGH "
+                      + " |\n| **HIGH** | "
                       + ([$v[] | select(.Severity == "HIGH")] | length | tostring)
-                      + ", MEDIUM "
+                      + " |\n| **MEDIUM** | "
                       + ([$v[] | select(.Severity == "MEDIUM")] | length | tostring)
-                      + ", LOW "
+                      + " |\n| **LOW** | "
                       + ([$v[] | select(.Severity == "LOW")] | length | tostring)
+                      + " |"
                       + (if ($v | length) == 0 then
                            "\n\n취약점이 발견되지 않았습니다."
                          else
-                           "\n\n**주요 항목 (최대 10개):**\n"
+                           "\n\n<details>\n<summary>주요 취약점 (최대 10건)</summary>\n\n"
+                           + "| 심각도 | CVE | 이미지 | 패키지 | 설치 버전 | 수정 버전 |\n"
+                           + "|:--|:--|:--|:--|:--|:--|\n"
                            + ([$v | sort_by(
                                  if .Severity == "CRITICAL" then 0
                                  elif .Severity == "HIGH" then 1
@@ -94,13 +99,14 @@ jobs:
                                  else 3
                                  end
                                ) | .[:10][]
-                               | "- `" + (.VulnerabilityID // "unknown") + "` "
-                                 + (.Severity // "UNKNOWN") + " | `"
-                                 + (.Image // "unknown") + "` | `"
-                                 + (.PkgName // "unknown") + "` "
-                                 + (.InstalledVersion // "version unknown") + " -> "
-                                 + (.FixedVersion // "수정 버전 없음")]
+                               | "| `" + (.Severity // "UNKNOWN") + "` | `"
+                                + (.VulnerabilityID // "unknown") + "` | `"
+                                + (.Image // "unknown") + "` | `"
+                                + (.PkgName // "unknown") + "` | `"
+                                + (.InstalledVersion // "version unknown") + "` | `"
+                                + (.FixedVersion // "수정 버전 없음") + "` |"]
                               | join("\n"))
+                            + "\n\n</details>"
                          end)
                   ' trivy-ai.json trivy-embedding.json trivy-ingest.json)"
                   delimiter="trivy_$(openssl rand -hex 16)"
