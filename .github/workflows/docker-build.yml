@@ -5,15 +5,15 @@ on:
     outputs:
       summary:
         description: Markdown summary of the Trivy image scans
-        value: ${{ jobs.build_and_scan.outputs.summary }}
+        value: ${{ jobs.report.outputs.summary }}
 
 jobs:
-    build_and_scan:
+      build_and_scan:
         runs-on: ubuntu-24.04
-        outputs:
-            summary: ${{ steps.report.outputs.summary }}
-        env:
-            IMAGE_TAG: sha-${{ github.sha }}
+        strategy:
+          fail-fast: false
+          matrix:
+            target: [ai, embedding, ingest]
         steps:
             - name: Checkout repository
               uses: actions/checkout@v7.0.1
@@ -30,41 +30,41 @@ jobs:
                   docker buildx version
                   docker buildx inspect --bootstrap
             
-            - name: Build Docker images
+            - name: Build Docker image
               run: |
-                for target in ai embedding ingest; do
-                  docker buildx build \
-                    --target "$target" \
-                    --tag "ci-${target}:${IMAGE_TAG}" \
-                    --load .
-                done
+                docker buildx build \
+                  --target "${{ matrix.target }}" \
+                  --tag "ci-${{ matrix.target }}:sha-${{ github.sha }}" \
+                  --load .
 
-            - name: Scan AI image
+            - name: Scan Docker image
               uses: aquasecurity/trivy-action@v0.36.0
               with:
                   scan-type: image
-                  image-ref: ci-ai:${{ env.IMAGE_TAG }}
+                  image-ref: ci-${{ matrix.target }}:sha-${{ github.sha }}
                   format: json
-                  output: trivy-ai.json
+                  output: trivy-${{ matrix.target }}.json
                   exit-code: '0'
 
-            - name: Scan embedding image
-              uses: aquasecurity/trivy-action@v0.36.0
+            - name: Upload scan result
+              uses: actions/upload-artifact@v4.6.2
               with:
-                  scan-type: image
-                  image-ref: ci-embedding:${{ env.IMAGE_TAG }}
-                  format: json
-                  output: trivy-embedding.json
-                  exit-code: '0'
+                name: trivy-${{ matrix.target }}
+                path: trivy-${{ matrix.target }}.json
+                if-no-files-found: error
 
-            - name: Scan ingest image
-              uses: aquasecurity/trivy-action@v0.36.0
+      report:
+        needs: build_and_scan
+        runs-on: ubuntu-24.04
+        outputs:
+            summary: ${{ steps.report.outputs.summary }}
+        steps:
+            - name: Download scan results
+              uses: actions/download-artifact@v4.3.0
               with:
-                  scan-type: image
-                  image-ref: ci-ingest:${{ env.IMAGE_TAG }}
-                  format: json
-                  output: trivy-ingest.json
-                  exit-code: '0'
+                  pattern: trivy-*
+                  path: trivy-reports
+                  merge-multiple: true
 
             - name: Build scan summary
               id: report
@@ -102,7 +102,7 @@ jobs:
                                  + (.FixedVersion // "수정 버전 없음")]
                               | join("\n"))
                          end)
-                  ' trivy-ai.json trivy-embedding.json trivy-ingest.json)"
+                  ' trivy-reports/trivy-ai.json trivy-reports/trivy-embedding.json trivy-reports/trivy-ingest.json)"
                   delimiter="trivy_$(openssl rand -hex 16)"
                   {
                     printf 'summary<<%s\n' "$delimiter"
