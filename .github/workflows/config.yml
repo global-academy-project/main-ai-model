@@ -1,7 +1,7 @@
 name: PR Automation
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, closed]
+    types: [opened, reopened, ready_for_review, synchronize, closed]
   issues:
     types: [opened, reopened, edited, closed]
   workflow_dispatch:
@@ -10,10 +10,6 @@ on:
         description: 'Branch to run the workflow on'
         required: false
         default: 'main'
-  workflow_run:
-    workflows: ["Docker Build Workflow"]
-    types: [completed]
-  
 
 permissions:
   contents: read
@@ -21,23 +17,29 @@ permissions:
   issues: write
 
 jobs:
-  after_build:
-    if: github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo "Docker 빌드 성공"
+  trivy_scan:
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","reopened","synchronize"]'), github.event.action)
+    uses: ./.github/workflows/docker-build.yml
+    permissions:
+      contents: read
 
   pull_request_apply:
+    needs: trivy_scan
     # closed(머지 포함) 시 PR body가 다시 덮어써지지 않도록 특정 action에서만 실행
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       contains(fromJSON('["opened"]'), github.event.action))
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' &&
+        contains(fromJSON('["opened"]'), github.event.action))) &&
+      (needs.trivy_scan.result == 'success' || needs.trivy_scan.result == 'skipped')
     runs-on: ubuntu-24.04
-    needs: after_build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.repository.default_branch || github.ref }}
 
       - name: Detect locale and update PR body
         shell: bash
@@ -47,6 +49,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_API_URL: ${{ github.api_url }}
           PR_ASSIGNEES: ${{ github.event.pull_request.user.login }}
+          TRIVY_REPORT: ${{ needs.trivy_scan.outputs.summary }}
         run: |
           chmod +x .github/scripts/pull-request-temp-apply.sh
           ./.github/scripts/pull-request-temp-apply.sh
