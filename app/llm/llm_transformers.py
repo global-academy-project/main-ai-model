@@ -11,6 +11,9 @@
   어댑터 폴더는 `Settings.llm_adapters`(env LLM_ADAPTERS, 이름 → 로컬 폴더)에서 찾고, 처음 쓸 때 한 번만 붙인다 (머지하지 않음).
   어댑터를 붙인 모델에서 어댑터가 없는 엔진은 어댑터를 끄고 생성한다 (다른 엔진의 어댑터가 섞이지 않게).
   폴더가 없거나 붙이지 못하면 경고만 남기고 기본 모델로 생성한다. 어댑터를 쓰는 엔진이 없으면 지금까지와 똑같이 동작한다.
+- 생성 잠금 (11/15, B): 모델(읽어 둔 객체)마다 하나다. 같은 모델을 쓰는 엔진끼리는 한 번에 하나씩(어댑터 전환 보호),
+  다른 모델(예: 0.6B 와 1.7B)은 서로 기다리지 않는다. LLM_GENERATE_LOCK=GLOBAL 이면 예전처럼 모든 생성이 잠금 하나를 쓴다.
+- 기동 때 미리 올리기 (11/15, B): app/llm/llm_preload.py 가 ensure_loaded()로 모델을 한 번 읽어 둔다 (LLM_PRELOAD).
 """
 
 from __future__ import annotations
@@ -53,11 +56,12 @@ class _LoadedModel:
         self.model = model
         self.adapters: set[str] = set()  # 이 모델에 붙인 LoRA 어댑터 이름
         self.skipped: set[str] = set()   # 붙이지 못한 어댑터 (다시 시도하지 않고 기본 모델로 생성)
+        self.lock = threading.Lock()  # 이 모델의 생성 잠금 (같은 모델 객체·어댑터 전환 보호. 다른 모델은 기다리지 않는다)
 
 
 _cache: dict[TransformersConfig, _LoadedModel] = {}
 _cache_lock = threading.Lock()
-_generate_lock = threading.Lock()  # 한 모델 인스턴스에서 동시 generate를 막는다
+_generate_lock = threading.Lock()  # LLM_GENERATE_LOCK=GLOBAL 일 때만 쓴다 (11/15 이전 동작: 모든 모델의 생성을 한 번에 하나씩)
 
 
 def _load(config: TransformersConfig, engine: str = DEFAULT_ENGINE_NAME) -> _LoadedModel:
@@ -96,6 +100,22 @@ def _load(config: TransformersConfig, engine: str = DEFAULT_ENGINE_NAME) -> _Loa
         loaded = _LoadedModel(tokenizer, model)
         _cache[config] = loaded
         return loaded
+
+
+def ensure_loaded(config: TransformersConfig, engine: str = DEFAULT_ENGINE_NAME) -> None:
+    """모델을 읽어 캐시에 둔다 (이미 있으면 아무것도 안 함). 기동 때 미리 올리기(llm_preload.py)가 부른다. 실패는 LLMError."""
+    _load(config, engine)
+
+
+def _generate_lock_for(loaded: _LoadedModel) -> threading.Lock:
+    """이번 생성에 쓸 잠금. 기본(MODEL)은 모델마다 하나, LLM_GENERATE_LOCK=GLOBAL 이면 모든 모델이 하나를 같이 쓴다."""
+    try:
+        from app.core import get_settings
+
+        scope = getattr(get_settings(), "llm_generate_lock", "MODEL")
+    except Exception:  # noqa: BLE001 - 설정을 읽지 못해도 생성은 막지 않는다 (기본 MODEL)
+        scope = "MODEL"
+    return _generate_lock if scope == "GLOBAL" else loaded.lock
 
 
 def _adapter_paths() -> dict[str, str]:
@@ -203,7 +223,7 @@ def generate_chat(
             **template_kwargs,
         ).to(loaded.model.device)
         prompt_len = int(inputs["input_ids"].shape[-1])
-        with _generate_lock, _use_adapter(loaded, getattr(client, "adapter", None), engine):
+        with _generate_lock_for(loaded), _use_adapter(loaded, getattr(client, "adapter", None), engine):
             output = loaded.model.generate(
                 **inputs,
                 max_new_tokens=limit,

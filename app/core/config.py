@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     # - 어댑터를 새로 넣거나 바꾸면 서버를 다시 띄운다 (처음 쓸 때 한 번만 읽는다).
     llm_adapters: dict[str, str] = Field(default_factory=dict)
 
+    # 기동 때 LLM 모델을 미리 올릴지 (11/15, B). True(기본)면 FastAPI 가 뜰 때 router·시나리오 모델을 한 번 읽어 두고 계속 쓴다.
+    # false 면 예전처럼 처음 요청 때 읽는다. 읽다 실패해도 서버는 뜬다 (경고만, 요청 때 다시 시도). LoRA 어댑터는 지금처럼 처음 쓸 때 붙인다.
+    # 시험에서 `with TestClient(app)` 처럼 기동 절차를 돌리면 실제 모델을 읽으려 하므로 시험 환경은 LLM_PRELOAD=false 로 둔다.
+    llm_preload: bool = True
+    # 생성 잠금 범위 (11/15, B). MODEL(기본): 모델마다 잠금 하나 → 다른 모델(예: 0.6B 와 1.7B)은 동시에 생성한다.
+    # GLOBAL: 11/15 이전처럼 모든 모델의 생성이 한 번에 하나씩.
+    llm_generate_lock: Literal["MODEL", "GLOBAL"] = "MODEL"
+
     # 사진 인식 (C, TBM 사진 사람 수). 모델 파일은 로컬 경로만 읽는다 (scripts/download_models.py 로 미리 받아 둔다).
     #   VISION_MODEL_PATH 예) /models/yolox/yolox_nano.onnx. 비우거나 파일이 없으면 /api/v1/vision/* 는 503 (Spring 은 파일 정보 확인만 하고 계속)
     vision_model_path: str | None = None
@@ -120,7 +128,8 @@ class Settings(BaseSettings):
 
     # 검색 도구를 A의 RAG 로 쓸지 mock 으로 쓸지. True=RAG (기본), False=mock.
     # Qdrant·임베딩 서버가 없는 PC 에서만 .env 에 RAG_ENABLED=false 로 끈다 (커밋 없이 내 PC 만 꺼진다).
-    rag_enabled: bool = True
+    # rag_enabled: bool = True
+    rag_enabled: bool = False
     # A의 검색 함수 위치 '모듈경로:함수이름'. rag_enabled 가 True 일 때만 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
     # 위치만 코드에 둔다. 접속 정보(EMBEDDING_URL, EMBEDDING_API_KEY, QDRANT_URL, QDRANT_READ_ONLY_API_KEY)는 환경변수다.
     rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
