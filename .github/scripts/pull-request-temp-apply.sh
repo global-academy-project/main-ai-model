@@ -179,6 +179,10 @@ PR_BODY="$(cat "$TEMPLATE_PATH")"
 # PR 템플릿 내 __COMMIT_SHA__를 실제 커밋 요약으로 치환
 PR_BODY="${PR_BODY//__COMMIT_SHA__/$COMMIT_SUMMARY}"
 
+# PR 템플릿 내 Trivy 결과 placeholder를 검사 요약으로 치환
+TRIVY_REPORT="${TRIVY_REPORT:-검사 결과를 전달받지 못했습니다.}"
+PR_BODY="${PR_BODY//__TRIVY_REPORT__/$TRIVY_REPORT}"
+
 # PR 템플릿 내 __BRANCH_NAME__를 실제 브랜치 이름으로 치환
 PAYLOAD="$(jq -n --arg body "$PR_BODY" '{body: $body}')"
 
