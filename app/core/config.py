@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     internal_api_base_url: str | None = None
     internal_api_token: SecretStr | None = None
 
+    # lookup_msds 도구: MOCK(기본, 연습 데이터 12개) | KOSHA(공단 MSDS API). KOSHA에는 키가 필요하다 (환경변수 KOSHA_MSDS_SERVICE_KEY).
+    msds_tool: Literal["MOCK", "KOSHA"] = "KOSHA"
+    kosha_msds_service_key: SecretStr | None = None
+
     # 시나리오별 엔진·모델. 기본값은 위 SCENARIO_MODELS 표다 (복사본을 써서 표 자체는 바뀌지 않는다).
     scenario_engines: dict[str, dict[str, str]] = Field(
         default_factory=lambda: {key: dict(binding) for key, binding in SCENARIO_MODELS.items()}
@@ -128,8 +132,8 @@ class Settings(BaseSettings):
 
     # 검색 도구를 A의 RAG 로 쓸지 mock 으로 쓸지. True=RAG (기본), False=mock.
     # Qdrant·임베딩 서버가 없는 PC 에서만 .env 에 RAG_ENABLED=false 로 끈다 (커밋 없이 내 PC 만 꺼진다).
-    # rag_enabled: bool = True
-    rag_enabled: bool = False
+    rag_enabled: bool = True
+    # rag_enabled: bool = False
     # A의 검색 함수 위치 '모듈경로:함수이름'. rag_enabled 가 True 일 때만 쓴다. 서버 설정으로만 정한다 (요청자가 고를 수 없다).
     # 위치만 코드에 둔다. 접속 정보(EMBEDDING_URL, EMBEDDING_API_KEY, QDRANT_URL, QDRANT_READ_ONLY_API_KEY)는 환경변수다.
     rag_backend: str | None = "app.rag.tool_backend:build_search_backend"
@@ -207,6 +211,14 @@ class Settings(BaseSettings):
                 raise ValueError("internal_api_base_url이 필요합니다.")
             if self.internal_api_token is None:
                 raise ValueError("internal_api_token 필요합니다.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_msds(self) -> "Settings":
+        """MSDS_TOOL=KOSHA인데 키가 없으면 기동 시점에 막는다 (조용히 mock으로 남지 않게)."""
+        if self.msds_tool == "KOSHA":
+            if self.kosha_msds_service_key is None or not self.kosha_msds_service_key.get_secret_value().strip():
+                raise ValueError("MSDS_TOOL=KOSHA에는 KOSHA_MSDS_SERVICE_KEY가 필요합니다.")
         return self
 
 @lru_cache

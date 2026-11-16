@@ -146,7 +146,8 @@ def permit_data(
     if form_type == "HOT_WORK_PERMIT":
         data["hot_work_kind"] = slots.hot_work_kind
     if form_type in _MATERIAL_PERMITS:
-        by_name = {m.name or m.query: m for m in msds}
+        # 실제 MSDS의 name은 공단 이름이라(예: "이소프로필 알코올") 사용자 표기와 다를 수 있다. 사용자 표기(query)로도 찾는다.
+        by_name = {**{m.name or m.query: m for m in msds}, **{m.query: m for m in msds}}
         data["nearby_hazardous_materials"] = [
             {
                 "name": name,

@@ -17,18 +17,23 @@ from .rag_loader import load_search_backend
 from .tool_registry import ToolRegistry
 
 CHECK_RULES_DESCRIPTION = "가스농도·필수 배치·필수 항목 판정 (Spring 규칙 엔진 호출)"
+MSDS_DESCRIPTION = "공단 MSDS API에서 물질명 또는 CAS 번호로 유해성·응급조치 정보를 조회합니다."
 
 def build_tool_registry(
     *, extra: Callable[[ToolRegistry], None] | None = None, rag_backend: str | None = None,
     check_rules_tool: tuple[Callable, dict] | None = None,
+    msds_tool: tuple[Callable, dict] | None = None,
 ) -> ToolRegistry:
     """B의 실제 도구 + A·C의 mock 도구. extra로 실제 도구를 덮어쓸 수 있다 (replace=True로 등록).
 
     rag_backend('모듈경로:함수이름', Settings.rag_backend)가 있으면 search_accidents · search_guides를 A의 검색으로 바꾼다.
-    비어 있으면 mock 그대로다. 잘못된 값은 ValueError. 적용 순서는 mock → 실제 check_rules → RAG → extra다.
+    비어 있으면 mock 그대로다. 잘못된 값은 ValueError. 적용 순서는 mock → 실제 msds → 실제 check_rules → RAG → extra다.
 
     check_rules_tool=(handler, parameters)가 있으면 check_rules를 C의 실제 도구로 바꾼다 (CHECK_RULES_TOOL=SPRING).
     만드는 곳은 app/agent/check_rules_setup.py다. None이면 mock 그대로다.
+
+    msds_tool=(handler, parameters)가 있으면 lookup_msds를 A의 실제 도구(공단 MSDS API)로 바꾼다 (MSDS_TOOL=KOSHA).
+    만드는 곳은 app/agent/msds_setup.py다. None이면 mock 그대로다.
     """
     from .mock import register_mock_tools  # mock은 이 함수 안에서만 임포트한다
 
@@ -37,6 +42,9 @@ def build_tool_registry(
                       parameters=CLASSIFY_WORK_PARAMETERS)
     registry.register("fill_form", fill_form, owner="B", description="관리 항목 초안 작성과 스키마 검증", parameters=FILL_FORM_PARAMETERS)
     register_mock_tools(registry)
+    if msds_tool is not None:  # A의 실제 lookup_msds (mock과 같은 입출력 키)
+        handler, parameters = msds_tool
+        registry.register("lookup_msds", handler, owner="A", description=MSDS_DESCRIPTION, parameters=parameters, replace=True)
     if check_rules_tool is not None:  # C의 실제 check_rules (mock과 같은 입출력)
         handler, parameters = check_rules_tool
         registry.register("check_rules", handler, owner="C", description=CHECK_RULES_DESCRIPTION,
