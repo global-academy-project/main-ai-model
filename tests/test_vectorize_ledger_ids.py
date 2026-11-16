@@ -96,10 +96,10 @@ def test_ledger_id_counts(tmp_path):
     assert va.ledger_id_counts(path) == (1, 2)
 
 
-def test_option_default_is_off():
+def test_option_default_requires_catalog_ids():
     args = va.parse_args(["--dry-run"])
-    assert args.require_ledger_ids is False
-    assert va.parse_args(["--require-ledger-ids"]).require_ledger_ids is True
+    assert args.require_ledger_ids is True
+    assert va.parse_args(["--no-require-ledger-ids"]).require_ledger_ids is False
 
 
 # ── run() 전체 흐름 (--check-only): PC 에서 실제로 났던 상황을 재현 ───────────────────────
@@ -112,10 +112,19 @@ def _record(n: int) -> dict:
         "text": "본문", "embed_text": "임베딩 문장", "site_id": 0, "flagged": False,
         "title": "제목", "locator": "위치", "year": 2024, "severity": "FATAL",
         "accident_type": [], "hazard": [], "work_type": [], "cas": [], "ghs": [],
+        "sif_potential": None,
+        "tag_status": {
+            "severity": "KNOWN", "accident_type": "UNKNOWN", "hazard": "UNKNOWN",
+            "work_type": "UNKNOWN", "substance": "UNKNOWN", "ghs": "UNKNOWN",
+            "sif_potential": "UNKNOWN",
+        },
+        "tagging_source": "SIF_STRUCTURED_RULES",
+        "tagging_version": "sif-structured-v1+tag-codes-v5",
+        "substances": [],
     }
 
 
-def _run_check_only(tmp_path, monkeypatch, ledger_for):
+def _run_check_only(tmp_path, monkeypatch, ledger_for, *extra):
     records = [_record(i) for i in range(3)]
     monkeypatch.setattr(va, "load_records", lambda path: records)
     chunks = tmp_path / "05_chunks.jsonl"
@@ -132,7 +141,7 @@ def _run_check_only(tmp_path, monkeypatch, ledger_for):
         }))
     (vector_dir / "ds.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     args = va.parse_args(["--chunks", str(chunks), "--dataset-id", "ds", "--vector-dir", str(vector_dir),
-                          "--embedding-dim", "4", "--check-only", "--no-validation"])
+                          "--embedding-dim", "4", "--check-only", "--no-validation", *extra])
     out: list[str] = []
     return va.run(args, log=out.append), "\n".join(out)
 
@@ -145,7 +154,7 @@ def test_run_passes_with_new_server_ids(tmp_path, monkeypatch):
 
 
 def test_run_passes_with_old_server_but_warns(tmp_path, monkeypatch):
-    code, text = _run_check_only(tmp_path, monkeypatch, lambda i: ids(None, None))
+    code, text = _run_check_only(tmp_path, monkeypatch, lambda i: ids(None, None), "--no-require-ledger-ids")
     assert code == 0
     assert "있음 0점 / 없음 3점" in text and "doc_id가 비게" in text
 
