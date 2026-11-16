@@ -282,6 +282,7 @@ def save_local_chunk_file_vectors(
         payload_fields = (
             "source_type", "site_id", "flagged", "title", "locator", "url", "text",
             "severity", "accident_type", "hazard", "work_type", "cas", "ghs", "year",
+            "substances", "sif_potential", "tag_status", "tagging_source", "tagging_version",
             "external_id", "chunk_index", "natural_key", "license", "publisher",
             "content_sha256", "tier", "cate", "disaster_type", "situation",
         )
