@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Any
 from types import ModuleType
 
+from app.rag.tags.metadata import build_tag_status
+
 from . import config
 from .config import BuildSettings
 
@@ -55,12 +57,33 @@ def hazards(clean: dict[str, str], accident: list[str], profile: ModuleType) -> 
 def tags_for(doc: dict[str, Any], profile: ModuleType, settings: BuildSettings, year_max: int) -> dict[str, Any]:
     clean = doc["clean"]
     accident = accident_types(clean, profile, settings)
+    severity = profile.severity_of(clean["disasterOverview"])
+    hazard = hazards(clean, accident, profile)
+    work_type = work_types(clean, profile)
+    cas: list[str] = []
+    ghs: list[str] = []
+    substances: list[dict[str, Any]] = []
     return {
-        "severity": profile.severity_of(clean["disasterOverview"]),
+        "severity": severity,
         "accident_type": accident,
-        "hazard": hazards(clean, accident, profile),
-        "work_type": work_types(clean, profile),
-        "cas": [],
-        "ghs": [],
+        "hazard": hazard,
+        "work_type": work_type,
+        "cas": cas,
+        "ghs": ghs,
+        "substances": substances,
+        "sif_potential": None,
+        "tag_status": build_tag_status(
+            {
+                "severity": severity,
+                "accident_type": accident,
+                "hazard": hazard,
+                "work_type": work_type,
+                "substance": cas,
+                "ghs": ghs,
+                "sif_potential": None,
+            }
+        ),
+        "tagging_source": "SIF_STRUCTURED_RULES",
+        "tagging_version": profile.TAGGING_VERSION,
         "year": profile.year_of(clean["disasterOverview"], config.YEAR_MIN, year_max),
     }
