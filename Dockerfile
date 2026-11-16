@@ -24,7 +24,9 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir --no-index \
         --find-links=/tmp/wheels -r requirements.release.txt \
     && /opt/venv/bin/python -m pip check \
-    && rm -rf /tmp/wheels
+    && rm -rf /tmp/wheels \
+    && mkdir -p /models/huggingface \
+    && chown 65003:65003 /models/huggingface
 
 #-------------------------[Multi-stage build AI image]---------------------------------------
 FROM ml-dependencies AS ai
@@ -64,6 +66,8 @@ USER 65003:65003
 
 COPY app/ingest_main.py ./app/
 COPY app/ingest/ ./app/ingest/
+COPY app/rag/ ./app/rag/
+COPY app/chunking/accident_ingest/ ./app/chunking/accident_ingest/
 COPY app/publicdata/ ./app/publicdata/
 
 EXPOSE 8001
@@ -74,12 +78,12 @@ CMD ["uvicorn", "app.ingest_main:app", "--host", "0.0.0.0", "--port", "8001"]
 
 FROM base AS qdrant-init
 
-USER 65003:65003
-
 COPY requirements.qdrant-init.txt ./
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.qdrant-init.txt \
     && /opt/venv/bin/python -m pip check
+
+USER 65003:65003
 
 COPY scripts ./scripts
 
