@@ -132,7 +132,7 @@ def verify_mysql() -> None:
 # ---------------------------------------------------------------- Qdrant
 COMMON_INDEXES = {"kb_source_id", "kb_chunk_id", "source_type", "site_id", "hazard", "work_type", "cas", "year", "flagged"}
 INDEXES = {
-    "kb_accidents": COMMON_INDEXES | {"severity", "accident_type", "ghs"},
+    "kb_accidents": COMMON_INDEXES | {"severity", "accident_type", "ghs", "sif_potential"},
     "kb_guides": COMMON_INDEXES | {"guide_no"},
 }
 
@@ -178,12 +178,14 @@ def verify_qdrant() -> None:
         "vector": {"dense": vec, "sparse": {"indices": [1, 7], "values": [1.0, 0.5]}},
         "payload": {"kb_source_id": 0, "kb_chunk_id": 0, "source_type": "ACCIDENT_REPORT", "site_id": 0,
                     "title": "점검용", "severity": "FATAL", "accident_type": ["FIRE"], "hazard": ["CHEMICAL"],
-                    "work_type": ["HOT"], "cas": ["108-88-3"], "year": 2024, "flagged": False},
+                    "work_type": ["HOT"], "cas": ["108-88-3"], "year": 2024, "flagged": False,
+                    "sif_potential": "NOT_POTENTIAL"},
     }
     query = {
         "query": vec, "using": "dense", "limit": 3,
         "filter": {"must": [
             {"key": "work_type", "match": {"any": ["HOT"]}},
+            {"key": "sif_potential", "match": {"value": "NOT_POTENTIAL"}},
             {"key": "site_id", "match": {"any": [0, 1]}},
             {"key": "flagged", "match": {"value": False}},
         ]},
