@@ -31,6 +31,8 @@ from datetime import date
 from types import ModuleType
 from typing import Any
 
+from app.rag.tags.metadata import SIF_POTENTIAL_VALUES, validate_substance_links, validate_tag_status
+
 from . import config, golden, ids
 from .chunk import case_text, make_pieces, sections_of
 from .clean import NARRATIVE_FIELDS, clean_text, is_empty
@@ -210,6 +212,31 @@ def validate_all(
         y, s = r["year"], r["severity"]
         ok = (y is None or (isinstance(y, int) and not isinstance(y, bool))) and (s is None or isinstance(s, str))
         ok = ok and all(isinstance(r[k], list) and all(isinstance(x, str) for x in r[k]) for k in ("accident_type", "hazard", "work_type", "cas", "ghs"))
+        ok = ok and isinstance(r["substances"], list)
+        try:
+            validate_substance_links(r["substances"], r["cas"], r["ghs"])
+        except (KeyError, TypeError, ValueError):
+            ok = False
+        ok = ok and (r["sif_potential"] is None or r["sif_potential"] in SIF_POTENTIAL_VALUES)
+        ok = ok and isinstance(r["tagging_source"], str) and bool(r["tagging_source"].strip())
+        ok = ok and isinstance(r["tagging_version"], str) and bool(r["tagging_version"].strip())
+        ok = ok and all(re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", code) for code in r["ghs"])
+        try:
+            expected_status = validate_tag_status(
+                r["tag_status"],
+                {
+                    "severity": s,
+                    "accident_type": r["accident_type"],
+                    "hazard": r["hazard"],
+                    "work_type": r["work_type"],
+                    "substance": r["cas"],
+                    "ghs": r["ghs"],
+                    "sif_potential": r["sif_potential"],
+                },
+            )
+            ok = ok and expected_status == r["tag_status"]
+        except (KeyError, TypeError, ValueError):
+            ok = False
         ok = ok and isinstance(r["flagged"], bool) and r["site_id"] == config.SITE_ID
         if not ok:
             pay_bad.append(r["external_id"])
