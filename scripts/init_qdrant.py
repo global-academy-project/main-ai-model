@@ -74,6 +74,7 @@ COLLECTIONS: dict[str, dict[str, models.PayloadSchemaType]] = {
         "severity": K,
         "accident_type": K,
         "ghs": K,
+        "sif_potential": K,
     },
     "kb_guides": {
         **COMMON_INDEXES,
@@ -125,6 +126,7 @@ def check(client: QdrantClient) -> None:
                     "kb_source_id": 0, "kb_chunk_id": 0, "source_type": "ACCIDENT_REPORT", "site_id": 0,
                     "title": "점검용", "severity": "FATAL", "accident_type": ["FIRE", "EXPLOSION"],
                     "hazard": ["CHEMICAL"], "work_type": ["HOT"], "cas": ["108-88-3"], "year": 2024, "flagged": False,
+                    "sif_potential": "NOT_POTENTIAL",
                 },
             )
         ],
@@ -135,6 +137,7 @@ def check(client: QdrantClient) -> None:
         must=[
             models.FieldCondition(key="work_type", match=models.MatchAny(any=["HOT"])),
             models.FieldCondition(key="accident_type", match=models.MatchAny(any=["FIRE", "EXPLOSION"])),
+            models.FieldCondition(key="sif_potential", match=models.MatchValue(value="NOT_POTENTIAL")),
             models.FieldCondition(key="site_id", match=models.MatchAny(any=[0, my_site])),
             models.FieldCondition(key="flagged", match=models.MatchValue(value=False)),
         ]
