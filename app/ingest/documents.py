@@ -70,6 +70,11 @@ def _build_public_ingest_request(
                     "work_type",
                     "cas",
                     "ghs",
+                    "substances",
+                    "sif_potential",
+                    "tag_status",
+                    "tagging_source",
+                    "tagging_version",
                     "year",
                 ):
                     if field in source_chunk.payload:
@@ -103,7 +108,10 @@ def _build_public_ingest_request(
                         }
                     )
                 else:
-                    for field in ("hazard", "work_type", "cas", "year", "guide_no"):
+                    for field in (
+                        "hazard", "work_type", "cas", "ghs", "substances", "sif_potential", "tag_status",
+                        "tagging_source", "tagging_version", "year", "guide_no",
+                    ):
                         if field in source_chunk.payload and (
                             field != "guide_no" or source_chunk.payload[field] is not None
                         ):
@@ -168,7 +176,21 @@ def _as_public_source_request(
         source=PublicSource.model_validate(source_data),
         chunks=[
             PublicSourceChunk.model_validate(
-                chunk.model_dump(exclude_unset=source_data["source_type"] == "LAW")
+                {
+                    **chunk.model_dump(exclude_unset=source_data["source_type"] == "LAW"),
+                    **(
+                        {
+                            "payload": {
+                                **chunk.model_dump(exclude_unset=True)["payload"],
+                                **chunk.payload.model_dump(
+                                    include={"ghs", "substances", "sif_potential", "tag_status", "tagging_source", "tagging_version"}
+                                ),
+                            }
+                        }
+                        if source_data["source_type"] == "LAW"
+                        else {}
+                    ),
+                }
             )
             for chunk in chunks
         ],
