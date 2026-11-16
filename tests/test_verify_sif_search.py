@@ -51,6 +51,19 @@ def make_record(i: int):
         "work_type": list(top[4]),
         "cas": [],
         "ghs": [],
+        "substances": [],
+        "sif_potential": None,
+        "tag_status": {
+            "severity": "KNOWN" if top[6] is not None else "UNKNOWN",
+            "accident_type": "KNOWN" if top[3] else "UNKNOWN",
+            "hazard": "KNOWN" if top[5] else "UNKNOWN",
+            "work_type": "KNOWN" if top[4] else "UNKNOWN",
+            "substance": "UNKNOWN",
+            "ghs": "UNKNOWN",
+            "sif_potential": "UNKNOWN",
+        },
+        "tagging_source": "SIF_STRUCTURED_RULES",
+        "tagging_version": "sif-structured-v1+tag-codes-v5",
         "url": "https://www.data.go.kr/data/15161362/openapi.do",
         "license": "이용허락범위 제한 없음",
         "publisher": "한국산업안전보건공단",
@@ -77,7 +90,8 @@ def write_chunks(tmp_path: Path, records) -> Path:
 
 PAYLOAD_KEYS = (
     "source_type", "site_id", "flagged", "title", "locator", "url", "text", "severity", "accident_type", "hazard",
-    "work_type", "cas", "ghs", "year", "external_id", "chunk_index", "license", "publisher", "content_sha256",
+    "work_type", "cas", "ghs", "substances", "sif_potential", "tag_status", "tagging_source", "tagging_version",
+    "year", "external_id", "chunk_index", "license", "publisher", "content_sha256",
     "tier", "cate", "disaster_type", "situation",
 )
 

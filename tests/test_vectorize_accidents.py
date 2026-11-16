@@ -23,6 +23,7 @@ TOKEN = "t-ingest"
 PAYLOAD_FIELDS = (
     "source_type", "site_id", "flagged", "title", "locator", "url", "text",
     "severity", "accident_type", "hazard", "work_type", "cas", "ghs", "year",
+    "substances", "sif_potential", "tag_status", "tagging_source", "tagging_version",
     "external_id", "chunk_index", "natural_key", "license", "publisher",
     "content_sha256", "tier", "cate", "disaster_type", "situation",
 )
@@ -49,6 +50,15 @@ def make_record(i: int, **over):
         "work_type": ["HEIGHT"],
         "cas": [],
         "ghs": [],
+        "substances": [],
+        "sif_potential": None,
+        "tag_status": {
+            "severity": "KNOWN", "accident_type": "KNOWN", "hazard": "UNKNOWN",
+            "work_type": "KNOWN", "substance": "UNKNOWN", "ghs": "UNKNOWN",
+            "sif_potential": "UNKNOWN",
+        },
+        "tagging_source": "SIF_STRUCTURED_RULES",
+        "tagging_version": "sif-structured-v1+tag-codes-v5",
         "url": "https://www.data.go.kr/data/15161362/openapi.do",
         "license": "이용허락범위 제한 없음",
         "publisher": "한국산업안전보건공단",
@@ -161,11 +171,13 @@ class FakeSession:
         if validation is not None and validation["summary"]["chunks"] != len(records):
             return Resp(422, {"detail": "청크 수가 검증 결과와 일치하지 않습니다"})
         lines = []
-        for record in records:
+        source_ids: dict[str, int] = {}
+        for index, record in enumerate(records):
             pid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"SIF:{record['external_id']}:{record['chunk_index']}"))
             payload = {f: record[f] for f in PAYLOAD_FIELDS if f in record}
-            payload["kb_source_id"] = record.get("kb_source_id")
-            payload["kb_chunk_id"] = record.get("kb_chunk_id")
+            external_id = record["external_id"]
+            payload["kb_source_id"] = record.get("kb_source_id") or source_ids.setdefault(external_id, 101 + len(source_ids))
+            payload["kb_chunk_id"] = record.get("kb_chunk_id") or 1001 + index
             if self.tamper:
                 self.tamper(payload)
             vector = {"dense": [0.1] * DIM}
@@ -254,6 +266,8 @@ def test_check_records_accepts_missing_optional_fields():
     for field in ("year", "severity", "url", "kb_source_id", "kb_chunk_id", "situation"):
         record.pop(field, None)
     record["year"] = None
+    record["severity"] = None
+    record["tag_status"]["severity"] = "UNKNOWN"
     assert len(va.check_records([record])) == 1
 
 
@@ -288,9 +302,12 @@ def test_check_records_empty_and_too_many():
     ("year 문자", lambda r: r.update(year="2019"), "year"),
     ("year bool", lambda r: r.update(year=True), "year"),
     ("severity 숫자", lambda r: r.update(severity=1), "severity"),
+    ("tagging version 없음", lambda r: r.pop("tagging_version"), "tagging_version 필드가 없습니다"),
+    ("ghs 비정규 코드", lambda r: r.update(ghs=["인화성 액체"]), "ghs는 대문자 정규화 코드"),
     ("accident_type None", lambda r: r.update(accident_type=None), "accident_type는 문자열 배열"),
     ("hazard 숫자 원소", lambda r: r.update(hazard=[1]), "hazard는 문자열 배열"),
     ("ghs 없음", lambda r: r.pop("ghs"), "ghs는 문자열 배열"),
+    ("tag status 불일치", lambda r: r["tag_status"].update(ghs="KNOWN"), "tag_status.ghs=KNOWN인데 태그값이 없습니다"),
 ])
 def test_check_records_rejects(name, mutate, match):
     records = make_records(3)
@@ -589,11 +606,11 @@ def test_check_vector_file_linked_ids_flagged(tmp_path):
     path, points, _ = made(tmp_path)
 
     def link(lines):
-        lines[0]["payload"]["kb_source_id"] = 7
+        lines[0]["payload"]["kb_chunk_id"] = None
         return lines
 
     rewrite(path, link)
-    assert any("kb_source_id가 null이 아님" in p for p in va.check_vector_file(path, points, DIM)[1])
+    assert any("kb_source_id와 kb_chunk_id 중 하나만 있음" in p for p in va.check_vector_file(path, points, DIM)[1])
 
 
 def test_check_vector_file_malformed(tmp_path):
