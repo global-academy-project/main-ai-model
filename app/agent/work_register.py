@@ -58,6 +58,7 @@ from . import drafting, followup
 from .done_message import build_done_message
 from .evidence_collector import MAX_SUMMARY_CHARS, EvidenceCollector, EvidencePack, StepRecord, WorkContext
 from .plan_brief import MSDS_FIRST, PLAN_MODE, StagedCollector
+from .rule_titles import blocking_titles
 from .judgment import JudgeInput, judge, verify
 from .judgment_pick import JUDGMENT_MODE, PICK_MAX_TOKENS, judge_pick
 from .judgment_code import JUDGMENT_CODE, judge_code
@@ -359,7 +360,7 @@ def _conflict_issues(rule_check: RuleCheckDto | None) -> list[VerificationIssue]
 def _block_titles(rule_check: RuleCheckDto | None, block_reasons: Sequence[str]) -> list[str]:
     if not block_reasons:
         return []
-    titles = [e.title for e in rule_check.evaluations if e.severity == "BLOCK" and e.status != "PASS"] if rule_check else []
+    titles = blocking_titles(rule_check.evaluations) if rule_check else []
     return titles or ["규칙 판정"]
 
 
