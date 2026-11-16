@@ -15,10 +15,10 @@ from functools import lru_cache
 from typing import Annotated
 from fastapi import Depends, Request
 from app.tools.tool_registry import ToolRegistry
-from app.publicdata import register_publicdata_msds
 from ..tools.tool_setup import build_tool_registry
 from .work_register import WorkRegisterAgent
 from .check_rules_setup import build_check_rules_tool
+from .msds_setup import build_msds_tool
 from app.core import Settings, get_settings
 from app.llm.llm_provider import LLMClientProvider
 from app.services.agent_work_service import WorkRegisterAgentFactory
@@ -27,9 +27,11 @@ from app.services.agent_work_service import WorkRegisterAgentFactory
 def get_tool_registry() -> ToolRegistry:
     # rag_enabled(기본 True)면 검색 도구 2개가 A의 검색(rag_backend)으로 바뀐다. False(RAG_ENABLED=false)면 mock. 설정이 틀리면 첫 호출 때 ValueError.
     # check_rules: CHECK_RULES_TOOL=SPRING이면 C의 실제 도구로 바꾼다. MOCK이면 None이라 mock 그대로다.
+    # lookup_msds: MSDS_TOOL=KOSHA이면 A의 공단 MSDS API(msds_setup 래퍼)로 바꾼다. MOCK(기본)이면 None이라 mock 그대로다.
     return build_tool_registry(
         rag_backend=get_settings().rag_backend_path,
         check_rules_tool=build_check_rules_tool(get_settings()),
+        msds_tool=build_msds_tool(get_settings()),
     )
 
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
