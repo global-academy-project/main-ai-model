@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import math
+import re
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -14,6 +15,13 @@ from app.chunking.accident_ingest.profiles.sif import (
     TAG_CODES as SIF_TAG_CODES,
 )
 from app.rag.filters import COLLECTIONS
+from app.rag.tags.metadata import (
+    GHS_CLASS_CODE_PATTERN,
+    SIF_POTENTIAL_VALUES,
+    is_valid_cas_number,
+    validate_substance_links,
+    validate_tag_status,
+)
 
 
 def _validate_point_id(value: object) -> str | int:
@@ -189,6 +197,7 @@ class LocalChunkRecord(BaseModel):
     @model_validator(mode="after")
     def validate_chunk(self) -> LocalChunkRecord:
         key = self.natural_key
+        extra = self.model_extra or {}
         if self.collection == "kb_guides":
             part = key.get("part")
             if (
@@ -202,7 +211,6 @@ class LocalChunkRecord(BaseModel):
             ):
                 raise ValueError("법령 natural_key에 law_key, article_key, part가 필요합니다.")
         else:
-            extra = self.model_extra or {}
             external_id = extra.get("external_id")
             chunk_index = extra.get("chunk_index")
             if (
@@ -222,6 +230,38 @@ class LocalChunkRecord(BaseModel):
                 or extra.get("source_type") != "SIF"
             ):
                 raise ValueError("SIF 청크 natural_key, external_id, chunk_index, source_type가 올바르지 않습니다.")
+        if (
+            not isinstance(extra.get("tagging_source"), str)
+            or not extra["tagging_source"].strip()
+            or not isinstance(extra.get("tagging_version"), str)
+            or not extra["tagging_version"].strip()
+        ):
+            raise ValueError("공공 청크에 tagging_source와 tagging_version이 필요합니다.")
+        ghs = extra.get("ghs")
+        if not isinstance(ghs, list) or any(not isinstance(value, str) or not _GHS_CLASS_CODE.fullmatch(value) for value in ghs):
+            raise ValueError("공공 청크 ghs는 정규화 코드 문자열 배열이어야 합니다.")
+        substances = extra.get("substances")
+        if not isinstance(substances, list):
+            raise ValueError("공공 청크 substances 배열이 필요합니다.")
+        validate_substance_links(substances, extra.get("cas"), ghs)
+        sif_potential = extra.get("sif_potential")
+        if sif_potential is not None and sif_potential not in SIF_POTENTIAL_VALUES:
+            raise ValueError("sif_potential은 POTENTIAL, PRECURSOR, NOT_POTENTIAL 또는 null이어야 합니다.")
+        statuses = extra.get("tag_status")
+        if not isinstance(statuses, dict):
+            raise ValueError("공공 청크에 tag_status 객체가 필요합니다.")
+        status_values = {
+            "severity": extra.get("severity"),
+            "accident_type": extra.get("accident_type"),
+            "hazard": extra.get("hazard"),
+            "work_type": extra.get("work_type"),
+            "substance": extra.get("cas"),
+            "ghs": ghs,
+            "sif_potential": sif_potential,
+        }
+        not_applicable = ("severity", "accident_type", "sif_potential") if self.collection == "kb_guides" else ()
+        if statuses != validate_tag_status(statuses, status_values, not_applicable=not_applicable):
+            raise ValueError("tag_status는 태그값의 유무와 일치해야 합니다.")
         if not self.text.strip() or not self.embed_text.strip():
             raise ValueError("청크 text와 embed_text는 비어 있을 수 없습니다.")
         return self
@@ -376,6 +416,24 @@ class LawMetadata(BaseModel):
     source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class PublicSubstanceTag(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cas: str = Field(min_length=1, max_length=20)
+    ghs: list[str] = Field(default_factory=list)
+    source: str = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_substance(self) -> PublicSubstanceTag:
+        if not is_valid_cas_number(self.cas):
+            raise ValueError("물질 CAS 번호의 형식 또는 체크섬이 올바르지 않습니다.")
+        if any(not GHS_CLASS_CODE_PATTERN.fullmatch(code) for code in self.ghs):
+            raise ValueError("물질 GHS는 대문자 정규화 코드여야 합니다.")
+        if not self.source.strip():
+            raise ValueError("물질 GHS 출처는 비어 있을 수 없습니다.")
+        return self
+
+
 class PublicAccidentTags(BaseModel):
     """사고 컬렉션의 검색 태그와 기존 SIF payload 전용 필드를 검증한다."""
 
@@ -387,6 +445,11 @@ class PublicAccidentTags(BaseModel):
     work_type: list[str] = Field(default_factory=list)
     cas: list[str] = Field(default_factory=list)
     ghs: list[str] = Field(default_factory=list)
+    substances: list[PublicSubstanceTag] = Field(default_factory=list)
+    sif_potential: Literal["POTENTIAL", "PRECURSOR", "NOT_POTENTIAL"] | None = None
+    tag_status: dict[str, str] = Field(default_factory=dict)
+    tagging_source: str = Field(default="UNSPECIFIED", min_length=1, max_length=80)
+    tagging_version: str = Field(default="UNSPECIFIED", min_length=1, max_length=80)
     year: StrictInt | None = None
     natural_key: SifNaturalKey | None = None
     tier: Literal["A", "B", "C", "X"] | None = None
@@ -406,6 +469,21 @@ class PublicAccidentTags(BaseModel):
             values = getattr(self, field)
             if any(value not in SIF_TAG_CODES[axis] for value in values):
                 raise ValueError(f"{field}에 기존 태그 코드가 아닌 값이 있습니다.")
+        validate_substance_links(
+            [item.model_dump() for item in self.substances], self.cas, self.ghs
+        )
+        self.tag_status = validate_tag_status(
+            self.tag_status,
+            {
+                "severity": self.severity,
+                "accident_type": self.accident_type,
+                "hazard": self.hazard,
+                "work_type": self.work_type,
+                "substance": self.cas,
+                "ghs": self.ghs,
+                "sif_potential": self.sif_potential,
+            },
+        )
         return self
 
 
@@ -417,6 +495,12 @@ class PublicGuideTags(BaseModel):
     hazard: list[str] = Field(default_factory=list)
     work_type: list[str] = Field(default_factory=list)
     cas: list[str] = Field(default_factory=list)
+    ghs: list[str] = Field(default_factory=list)
+    substances: list[PublicSubstanceTag] = Field(default_factory=list)
+    sif_potential: Literal["POTENTIAL", "PRECURSOR", "NOT_POTENTIAL"] | None = None
+    tag_status: dict[str, str] = Field(default_factory=dict)
+    tagging_source: str = Field(default="UNSPECIFIED", min_length=1, max_length=80)
+    tagging_version: str = Field(default="UNSPECIFIED", min_length=1, max_length=80)
     year: StrictInt | None = None
     guide_no: str | None = None
     natural_key: LawNaturalKey | None = None
@@ -436,6 +520,22 @@ class PublicGuideTags(BaseModel):
             values = getattr(self, field)
             if any(value not in SIF_TAG_CODES[axis] for value in values):
                 raise ValueError(f"{field}에 기존 태그 코드가 아닌 값이 있습니다.")
+        validate_substance_links(
+            [item.model_dump() for item in self.substances], self.cas, self.ghs
+        )
+        self.tag_status = validate_tag_status(
+            self.tag_status,
+            {
+                "severity": None,
+                "accident_type": None,
+                "hazard": self.hazard,
+                "work_type": self.work_type,
+                "substance": self.cas,
+                "ghs": self.ghs,
+                "sif_potential": self.sif_potential,
+            },
+            not_applicable=("severity", "accident_type", "sif_potential"),
+        )
         return self
 
 
