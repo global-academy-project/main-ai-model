@@ -22,8 +22,6 @@ jobs:
             # 여기서는 GitHub Actions에서 Docker 이미지를 별도의 다양한 플랫폼에서 빌드하기 위해 사용된다.
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v4.4.1
-              with:
-                install: true
 
             - name: Verify Docker Buildx
               run: |
