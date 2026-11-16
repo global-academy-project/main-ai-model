@@ -16,6 +16,7 @@ _FILTER_FIELDS = frozenset(
         "work_type",
         "cas",
         "ghs",
+        "sif_potential",
         "year",
         "guide_no",
     }
