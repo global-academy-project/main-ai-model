@@ -10,6 +10,7 @@ from dataclasses import dataclass
 # --- A의 지식 DB 계약 (app/rag/filters.py COLLECTIONS, A님 문서 4장) -------------------
 SOURCE_TYPE = "LAW"
 COLLECTION = "kb_guides"
+TAGGING_VERSION = "law-hierarchy-v1"
 SITE_ID = 0  # 공공 자료는 Qdrant payload에서 0
 FLAGGED = False
 
