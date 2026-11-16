@@ -13,6 +13,7 @@ from pathlib import Path
 NAME = "sif"
 SOURCE_TYPE = "SIF"
 COLLECTION = "kb_accidents"
+TAGGING_VERSION = "sif-structured-v1+tag-codes-v5"
 DATASET_URL = "https://www.data.go.kr/data/15161362/openapi.do"
 PUBLISHER = "한국산업안전보건공단"
 LICENSE = "이용허락범위 제한 없음"
