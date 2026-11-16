@@ -110,6 +110,11 @@ def build_records(
             "work_type": tags["work_type"],
             "cas": tags["cas"],
             "ghs": tags["ghs"],
+            "substances": tags["substances"],
+            "sif_potential": tags["sif_potential"],
+            "tag_status": tags["tag_status"],
+            "tagging_source": tags["tagging_source"],
+            "tagging_version": tags["tagging_version"],
             "url": profile.DATASET_URL,
             "license": profile.LICENSE,
             "publisher": profile.PUBLISHER,
@@ -123,7 +128,7 @@ def build_records(
             "point_id": None,
         }
         rec["content_digest"] = sha256_json(
-            {k: rec[k] for k in ("chunk_index", "text", "embed_text", "title", "locator", "flagged", "year", "severity", "accident_type", "hazard", "work_type", "cas", "ghs")}
+            {k: rec[k] for k in ("chunk_index", "text", "embed_text", "title", "locator", "flagged", "year", "severity", "accident_type", "hazard", "work_type", "cas", "ghs", "substances", "sif_potential", "tag_status", "tagging_source", "tagging_version")}
         )
         records.append(rec)
     return records
@@ -135,7 +140,7 @@ def tag_report(records: list[dict[str, Any]], docs: list[dict[str, Any]]) -> dic
     for r in records:
         c = by_cate.setdefault(r["cate"], {"chunks": 0, "filled": {}, "values": {}})
         c["chunks"] += 1
-        for axis in ("severity", "accident_type", "hazard", "work_type", "year"):
+        for axis in ("severity", "accident_type", "hazard", "work_type", "cas", "ghs", "sif_potential", "year"):
             v = r[axis]
             filled = bool(v) if isinstance(v, list) else v is not None
             if filled:
