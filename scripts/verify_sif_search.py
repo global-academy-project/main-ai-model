@@ -57,7 +57,7 @@ COLLECTION = "kb_accidents"
 SOURCE_TYPE = "SIF"
 RETRIEVE_BATCH = 200
 HIT_KS = (1, 3, 5, 10)
-TAG_AXES = ("severity", "accident_type", "hazard", "work_type")
+TAG_AXES = ("severity", "accident_type", "hazard", "work_type", "cas", "ghs")
 SearchFn = Callable[..., list[Any]]
 
 SMOKE_QUERIES: tuple[tuple[str, str], ...] = (
@@ -69,7 +69,7 @@ SMOKE_QUERIES: tuple[tuple[str, str], ...] = (
 FILTER_CASES: tuple[tuple[str, str], ...] = (
     ("accident_type", "FALL"), ("accident_type", "CAUGHT"), ("accident_type", "FIRE"),
     ("work_type", "HOT"), ("work_type", "CONFINED"), ("work_type", "HEIGHT"),
-    ("severity", "FATAL"), ("hazard", "ELECTRICAL"),
+    ("severity", "FATAL"), ("hazard", "ELECTRICAL"), ("sif_potential", "POTENTIAL"),
 )
 FILTER_QUERY = "작업 중 사고 예방 대책"
 _OVERVIEW_RE = re.compile(r"\[재해개요\]\n(.*?)(?:\n\n\[|\Z)", re.S)
@@ -87,6 +87,9 @@ def tag_pairs(record: Mapping[str, Any]) -> list[tuple[str, str]]:
     for axis in TAG_AXES[1:]:
         for value in record.get(axis) or []:
             pairs.append((axis, value))
+    sif_potential = record.get("sif_potential")
+    if isinstance(sif_potential, str) and sif_potential:
+        pairs.append(("sif_potential", sif_potential))
     return pairs
 
 
