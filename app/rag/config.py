@@ -15,7 +15,7 @@ class RagEnvironmentSettings(BaseSettings):
     embedding_model: str = Field(default="BAAI/bge-m3", min_length=1)
     embedding_dim: int = Field(default=1024, gt=0)
     embedding_api_key: SecretStr | None = None
-    qdrant_url: str = "http://qdrant:6333"
+    qdrant_url: str = "http://localhost:6333"
     qdrant_read_only_api_key: SecretStr | None = None
     rag_search_timeout_seconds: float = Field(default=15.0, gt=0, allow_inf_nan=False)
     kb_db_host: str | None = None
