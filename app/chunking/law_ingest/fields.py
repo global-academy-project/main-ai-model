@@ -13,6 +13,8 @@ import hashlib
 import re
 from typing import Any
 
+from app.rag.tags.metadata import build_tag_status
+
 from . import config
 from .config import BuildSettings
 from .models import Article, ParsedLaw, Piece
@@ -80,6 +82,18 @@ def build_records(law: ParsedLaw, pieces: list[Piece], settings: BuildSettings |
         hazard: list[str] = []
         if settings.tags_enabled:
             work_type, hazard = tags_for(path_labels, art.key)
+        tagging_status = build_tag_status(
+            {
+                "severity": None,
+                "accident_type": None,
+                "hazard": hazard,
+                "work_type": work_type,
+                "substance": [],
+                "ghs": [],
+                "sif_potential": None,
+            },
+            not_applicable=("severity", "accident_type", "sif_potential"),
+        )
 
         records.append(
             {
@@ -103,6 +117,12 @@ def build_records(law: ParsedLaw, pieces: list[Piece], settings: BuildSettings |
                 "hazard": hazard,
                 "work_type": work_type,
                 "cas": [],
+                "ghs": [],
+                "substances": [],
+                "sif_potential": None,
+                "tag_status": tagging_status,
+                "tagging_source": "LAW_HIERARCHY_RULES" if settings.tags_enabled else "RULES_DISABLED",
+                "tagging_version": config.TAGGING_VERSION,
                 "url": settings.url,
                 "file_path": file_path,
                 "article_sha256": _sha("\n".join(article_lines(art))),
@@ -136,6 +156,12 @@ def to_ingest_item(record: dict[str, Any]) -> dict[str, Any]:
         "hazard": record["hazard"],
         "work_type": record["work_type"],
         "cas": record["cas"],
+        "ghs": record["ghs"],
+        "substances": record["substances"],
+        "sif_potential": record["sif_potential"],
+        "tag_status": record["tag_status"],
+        "tagging_source": record["tagging_source"],
+        "tagging_version": record["tagging_version"],
         "year": record["year"],
         "title": record["title"],
         "locator": record["locator"],
