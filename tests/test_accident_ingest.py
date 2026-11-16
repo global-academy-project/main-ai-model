@@ -227,6 +227,24 @@ def test_work_type_hazard_severity_year():
     assert _tags(general("x", situation="지게차 사용 작업"))["work_type"] == []  # GENERAL을 붙이지 않는다
 
 
+def test_sif_tag_status_separates_unknown_from_known_values():
+    tags = _tags(general("2022년 사고", situation="용접(용단)·절단·사상 또는 도장 작업",
+                         disasterFactor="『불꽃』으로 화재 위험"))
+    assert tags["severity"] is None
+    assert tags["sif_potential"] is None
+    assert tags["tag_status"] == {
+        "severity": "UNKNOWN",
+        "accident_type": "KNOWN",
+        "hazard": "UNKNOWN",
+        "work_type": "KNOWN",
+        "substance": "UNKNOWN",
+        "ghs": "UNKNOWN",
+        "sif_potential": "UNKNOWN",
+    }
+    assert tags["tagging_source"] == "SIF_STRUCTURED_RULES"
+    assert tags["tagging_version"] == "sif-structured-v1+tag-codes-v5"
+
+
 def test_all_emitted_codes_exist_in_tag_codes_snapshot():
     for axis, table in (("ACCIDENT_TYPE", sif.CONSTRUCTION_ACCIDENT_TYPE),):
         for codes in table.values():

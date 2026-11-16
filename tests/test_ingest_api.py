@@ -11,7 +11,7 @@ from app.ingest import chunks as ingest_chunks
 from app.ingest import documents as document_ingest
 from app.ingest import local_vectors
 from app.ingest import points as ingest_points
-from app.ingest.schemas import PublicAccidentIngestRequest
+from app.ingest.schemas import PublicAccidentIngestRequest, PublicAccidentTags, PublicGuideTags
 
 
 def _configure_environment(monkeypatch):
@@ -21,6 +21,31 @@ def _configure_environment(monkeypatch):
     monkeypatch.setenv("EMBEDDING_URL", "http://embedding:60110/v1/embeddings")
     monkeypatch.setenv("EMBEDDING_MODEL", "BAAI/bge-m3")
     monkeypatch.setenv("EMBEDDING_DIM", "1024")
+
+
+def test_public_tag_metadata_links_cas_to_normalized_ghs():
+    tags = PublicAccidentTags(
+        cas=["108-88-3"],
+        ghs=["FLAMMABLE_LIQUID"],
+        substances=[{
+            "cas": "108-88-3",
+            "ghs": ["FLAMMABLE_LIQUID"],
+            "source": "KOSHA_MSDS",
+        }],
+    )
+    assert tags.tag_status["substance"] == "KNOWN"
+    assert tags.tag_status["ghs"] == "KNOWN"
+
+    with pytest.raises(ValueError, match="cas 배열은 substances"):
+        PublicAccidentTags(cas=["108-88-3"], substances=[])
+
+
+def test_public_guide_marks_nonapplicable_and_unknown_axes():
+    tags = PublicGuideTags()
+    assert tags.tag_status["severity"] == "NOT_APPLICABLE"
+    assert tags.tag_status["accident_type"] == "NOT_APPLICABLE"
+    assert tags.tag_status["hazard"] == "UNKNOWN"
+    assert tags.tag_status["substance"] == "UNKNOWN"
 
 
 def _request_body():
@@ -210,7 +235,8 @@ def test_accidents_endpoint_uses_fixed_collection_and_typed_tag_payload(monkeypa
     assert set(payload) == {
         "kb_source_id", "kb_chunk_id", "source_type", "site_id", "flagged",
         "title", "locator", "url", "text", "severity", "accident_type", "hazard",
-        "work_type", "cas", "ghs", "year", "external_id", "chunk_index",
+        "work_type", "cas", "ghs", "substances", "sif_potential", "tag_status",
+        "tagging_source", "tagging_version", "year", "external_id", "chunk_index",
         "natural_key", "license", "publisher", "content_sha256", "tier", "cate",
         "disaster_type", "situation",
     }
@@ -289,6 +315,7 @@ def test_guides_endpoint_uses_fixed_collection_and_typed_tag_payload(monkeypatch
     assert set(payload) == {
         "kb_source_id", "kb_chunk_id", "source_type", "site_id", "flagged",
         "title", "locator", "url", "text", "hazard", "work_type", "cas", "year",
+        "ghs", "substances", "sif_potential", "tag_status", "tagging_source", "tagging_version",
         "natural_key", "article_label", "article_title", "parts_total",
         "repeated_lead_lines", "oversize", "path", "hierarchy", "law_meta",
         "article_sha256", "embed_text", "collection", "file_path", "point_id",
@@ -560,6 +587,19 @@ def test_save_local_chunk_file_vectors_reads_validated_chunks(monkeypatch, tmp_p
             "flagged": False,
             "url": "https://example.test/law",
             "file_path": "raw/law.xml",
+            "hazard": [],
+            "work_type": [],
+            "cas": [],
+            "ghs": [],
+            "substances": [],
+            "sif_potential": None,
+            "tag_status": {
+                "severity": "NOT_APPLICABLE", "accident_type": "NOT_APPLICABLE",
+                "hazard": "UNKNOWN", "work_type": "UNKNOWN", "substance": "UNKNOWN",
+                "ghs": "UNKNOWN", "sif_potential": "NOT_APPLICABLE",
+            },
+            "tagging_source": "RULES_DISABLED",
+            "tagging_version": "law-hierarchy-v1",
             "law_meta": {"source_sha256": "a" * 64},
             "kb_source_id": None,
             "kb_chunk_id": None,
@@ -689,6 +729,15 @@ def test_save_local_chunk_file_vectors_supports_sif_records(monkeypatch, tmp_pat
         "work_type": ["HOT"],
         "cas": [],
         "ghs": [],
+        "substances": [],
+        "sif_potential": None,
+        "tag_status": {
+            "severity": "KNOWN", "accident_type": "KNOWN", "hazard": "KNOWN",
+            "work_type": "KNOWN", "substance": "UNKNOWN", "ghs": "UNKNOWN",
+            "sif_potential": "UNKNOWN",
+        },
+        "tagging_source": "SIF_STRUCTURED_RULES",
+        "tagging_version": "sif-structured-v1+tag-codes-v5",
         "url": "https://example.test/sif",
         "kb_source_id": None,
         "kb_chunk_id": None,

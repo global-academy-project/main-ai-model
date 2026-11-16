@@ -8,7 +8,8 @@ from pydantic import ValidationError
 from app.exceptions import ToolError
 from app.rag import http
 from app.rag.config import RagEnvironmentSettings, RagSettings
-from app.rag.filters import read_filters
+from app.rag.filters import make_qdrant_conditions, read_filters
+from app.rag.tags.metadata import build_tag_status, validate_substance_links, validate_tag_status
 from app.tools.adapters.rag_tools import register_rag_tools
 from app.tools.rag_loader import load_search_backend
 from app.tools.tool_registry import ToolRegistry
@@ -43,6 +44,41 @@ def test_rag_defaults_do_not_require_application_settings():
 def test_search_site_filter_excludes_current_site():
     _, _, site_ids = read_filters({"site_id": 17})
     assert site_ids == [0]
+
+
+def test_sif_potential_filter_builds_boolean_qdrant_condition():
+    collections, payload_filters, site_ids = read_filters(
+        {"collection": "kb_accidents", "sif_potential": "NOT_POTENTIAL"}
+    )
+    conditions = make_qdrant_conditions(collections[0], payload_filters, site_ids)
+    assert {"key": "sif_potential", "match": {"value": "NOT_POTENTIAL"}} in conditions
+
+
+def test_tag_status_distinguishes_unknown_and_not_applicable():
+    status = build_tag_status(
+        {"severity": None, "accident_type": None, "work_type": ["HOT"], "substance": []},
+        not_applicable=("severity", "accident_type", "sif_potential"),
+    )
+    assert status["severity"] == "NOT_APPLICABLE"
+    assert status["accident_type"] == "NOT_APPLICABLE"
+    assert status["work_type"] == "KNOWN"
+    assert status["substance"] == "UNKNOWN"
+    assert status["sif_potential"] == "NOT_APPLICABLE"
+
+
+def test_tag_status_rejects_known_without_value():
+    with pytest.raises(ValueError, match="KNOWN인데 해당 축의 태그값이 없습니다"):
+        validate_tag_status({"ghs": "KNOWN"}, {"ghs": []})
+
+
+def test_substance_links_validate_cas_ghs_and_source():
+    substances = [
+        {"cas": "108-88-3", "ghs": ["FLAMMABLE_LIQUID"], "source": "KOSHA_MSDS"},
+        {"cas": "67-64-1", "ghs": ["FLAMMABLE_LIQUID"], "source": "KOSHA_MSDS"},
+    ]
+    validate_substance_links(substances, ["108-88-3", "67-64-1"], ["FLAMMABLE_LIQUID"])
+    with pytest.raises(ValueError, match="cas 배열은 substances"):
+        validate_substance_links(substances, ["108-88-3"], ["FLAMMABLE_LIQUID"])
 
 
 def test_backend_reads_infra_environment(monkeypatch):

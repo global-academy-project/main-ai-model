@@ -369,6 +369,13 @@ class TestFields:
         assert r["natural_key"] == {"law_key": "테스트안전규칙", "article_key": "1", "part": 0}
         assert r["kb_source_id"] is None and r["kb_chunk_id"] is None and r["point_id"] is None
         assert r["cas"] == [] and r["hazard"] == [] and r["work_type"] == []
+        assert r["tag_status"] == {
+            "severity": "NOT_APPLICABLE", "accident_type": "NOT_APPLICABLE",
+            "hazard": "UNKNOWN", "work_type": "UNKNOWN", "substance": "UNKNOWN",
+            "ghs": "UNKNOWN", "sif_potential": "NOT_APPLICABLE",
+        }
+        assert r["tagging_source"] == "RULES_DISABLED"
+        assert r["tagging_version"] == "law-hierarchy-v1"
 
     def test_year_basis(self, cleaned):
         r = self.records(cleaned, year_basis="effective")[0]
@@ -396,6 +403,10 @@ class TestFields:
         off = next(x for x in self.records(cleaned) if x["article_label"] == "제5조")
         on = next(x for x in self.records(cleaned, tags_enabled=True) if x["article_label"] == "제5조")
         assert off["work_type"] == [] and on["work_type"] == ["HOT"] and on["hazard"] == ["CHEMICAL"]
+        assert off["tag_status"]["work_type"] == "UNKNOWN"
+        assert on["tag_status"]["work_type"] == "KNOWN"
+        assert on["tag_status"]["hazard"] == "KNOWN"
+        assert on["tagging_source"] == "LAW_HIERARCHY_RULES"
 
     def test_article_hash_changes_with_text(self, cleaned):
         a = next(x for x in self.records(cleaned) if x["article_label"] == "제1조")
