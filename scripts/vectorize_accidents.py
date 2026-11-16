@@ -67,9 +67,15 @@ VALIDATION_NAME = "06_validation.json"
 SAVE_ROUTE = "/ingest/vectors/local/file"
 MAX_RECORDS = 5000
 LIST_FIELDS = ("accident_type", "hazard", "work_type", "cas", "ghs")
+TAG_STATUS_AXES = ("severity", "accident_type", "hazard", "work_type", "substance", "ghs", "sif_potential")
+TAG_STATUS_VALUES = ("KNOWN", "UNKNOWN", "NOT_APPLICABLE")
+SIF_POTENTIAL_VALUES = ("POTENTIAL", "PRECURSOR", "NOT_POTENTIAL")
+_CAS_RE = re.compile(r"^[0-9]{2,7}-[0-9]{2}-[0-9]$")
+_GHS_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 # 서버가 벡터 파일 payload에 담는 필드 (서버 payload_fields). 이 중 05에 있는 값은 그대로여야 한다.
 COMPARE_FIELDS = (
     "source_type", "site_id", "flagged", "title", "locator", "url", "text", "severity", "year",
+    "substances", "sif_potential", "tag_status", "tagging_source", "tagging_version",
     "external_id", "chunk_index", "license", "publisher", "content_sha256", "tier", "cate",
     "disaster_type", "situation", *LIST_FIELDS,
 )
@@ -96,6 +102,68 @@ class ExpectedPoint:
 
 def _nonblank(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _cas_valid(value: str) -> bool:
+    if not _CAS_RE.fullmatch(value):
+        return False
+    digits = value.replace("-", "")
+    checksum = int(digits[-1])
+    weighted_sum = sum(int(digit) * weight for weight, digit in enumerate(reversed(digits[:-1]), start=1))
+    return weighted_sum % 10 == checksum
+
+
+def _validate_substances(record: dict[str, Any], where: str, external_id: str) -> None:
+    cas_values, ghs_values, substances = record.get("cas"), record.get("ghs"), record.get("substances")
+    if not isinstance(cas_values, list) or not isinstance(ghs_values, list) or not isinstance(substances, list):
+        raise InputError(f"cas·ghs·substances는 배열이어야 합니다 {where} {external_id}")
+    if any(not isinstance(value, str) or not _cas_valid(value) for value in cas_values):
+        raise InputError(f"CAS 번호 형식 또는 체크섬이 올바르지 않습니다 {where} {external_id}")
+    if any(not isinstance(value, str) or not _GHS_RE.fullmatch(value) for value in ghs_values):
+        raise InputError(f"ghs는 대문자 정규화 코드여야 합니다 {where} {external_id}")
+    linked_cas: list[str] = []
+    linked_ghs: list[str] = []
+    for substance in substances:
+        if not isinstance(substance, dict):
+            raise InputError(f"substances 항목은 객체여야 합니다 {where} {external_id}")
+        cas, ghs, source = substance.get("cas"), substance.get("ghs"), substance.get("source")
+        if not isinstance(cas, str) or not _cas_valid(cas) or not _nonblank(source):
+            raise InputError(f"substances CAS/source가 올바르지 않습니다 {where} {external_id}")
+        if not isinstance(ghs, list) or any(not isinstance(code, str) or not _GHS_RE.fullmatch(code) for code in ghs):
+            raise InputError(f"substances GHS가 정규화 코드 배열이 아닙니다 {where} {external_id}")
+        linked_cas.append(cas)
+        linked_ghs.extend(ghs)
+    if (
+        len(set(cas_values)) != len(cas_values)
+        or len(set(ghs_values)) != len(ghs_values)
+        or len(set(linked_cas)) != len(linked_cas)
+        or set(cas_values) != set(linked_cas)
+        or set(ghs_values) != set(linked_ghs)
+    ):
+        raise InputError(f"CAS/GHS 필터값이 substances 관계와 일치하지 않습니다 {where} {external_id}")
+
+
+def _validate_tag_status(record: dict[str, Any], where: str, external_id: str) -> None:
+    values = {
+        "severity": record.get("severity"),
+        "accident_type": record.get("accident_type"),
+        "hazard": record.get("hazard"),
+        "work_type": record.get("work_type"),
+        "substance": record.get("cas"),
+        "ghs": record.get("ghs"),
+        "sif_potential": record.get("sif_potential"),
+    }
+    status = record.get("tag_status")
+    if not isinstance(status, dict) or set(status) != set(TAG_STATUS_AXES):
+        raise InputError(f"tag_status 축이 올바르지 않습니다 {where} {external_id}")
+    for axis, value in values.items():
+        state = status.get(axis)
+        if state not in TAG_STATUS_VALUES:
+            raise InputError(f"tag_status.{axis} 값이 올바르지 않습니다 {where} {external_id}")
+        if state == "KNOWN" and not (bool(value) if isinstance(value, list) else value is not None):
+            raise InputError(f"tag_status.{axis}=KNOWN인데 태그값이 없습니다 {where} {external_id}")
+        if state != "KNOWN" and (bool(value) if isinstance(value, list) else value is not None):
+            raise InputError(f"tag_status.{axis} 상태와 태그값이 일치하지 않습니다 {where} {external_id}")
 
 
 def check_records(records: Sequence[dict[str, Any]]) -> list[ExpectedPoint]:
@@ -161,6 +229,13 @@ def check_records(records: Sequence[dict[str, Any]]) -> list[ExpectedPoint]:
             values = record.get(field)
             if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
                 raise InputError(f"{field}는 문자열 배열이어야 합니다 (태그가 없으면 []) {where} {external_id}")
+        if record.get("sif_potential") is not None and record["sif_potential"] not in SIF_POTENTIAL_VALUES:
+            raise InputError(f"sif_potential 코드가 올바르지 않습니다 {where} {external_id}")
+        for field in ("tagging_source", "tagging_version"):
+            if not _nonblank(record.get(field)):
+                raise InputError(f"{field} 필드가 없습니다 {where} {external_id}")
+        _validate_substances(record, where, external_id)
+        _validate_tag_status(record, where, external_id)
         points.append(ExpectedPoint(record, point_id_for(external_id, chunk_index), f"{external_id}/{chunk_index}"))
     return points
 
