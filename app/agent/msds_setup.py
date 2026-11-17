@@ -69,7 +69,8 @@ LOOKUP_TERMS: dict[str, str] = {
     "경유": "68334-30-5",
 }
 
-# "라벨 : 값" 구분. 라벨 안에 콜론이 올 수 있다 (예: "급성 독성(흡입: 가스) : 구분2"). 공백이 앞에 붙은 콜론만 구분으로 본다.
+# "라벨 : 값" 구분. 라벨 안에 콜론이 올 수 있다
+# (예: "급성 독성(흡입: 가스) : 구분2"). 공백이 앞에 붙은 콜론만 구분으로 본다.
 _SEPARATOR = re.compile(r"\s:(?:\s|$)")
 _NOT_APPLICABLE = ("해당없음", "자료없음", "분류되지않음", "분류안됨")
 
@@ -123,12 +124,21 @@ def make_msds_lookup(
     def lookup(arguments: Mapping[str, Any]) -> dict[str, Any]:
         materials = arguments.get("materials")
         if not isinstance(materials, list) or not all(isinstance(item, str) for item in materials):
-            raise ToolError("TOOL_INPUT_INVALID", "lookup_msds에는 물질 이름 목록(materials)이 필요합니다.", tool=TOOL_NAME)
+            raise ToolError(
+                "TOOL_INPUT_INVALID",
+                "lookup_msds에는 물질 이름 목록(materials)이 필요합니다.",
+                tool=TOOL_NAME,
+            )
         if len(materials) > MAX_MATERIALS:
-            raise ToolError("TOOL_INPUT_INVALID", f"물질은 한 번에 {MAX_MATERIALS}개까지 조회할 수 있습니다.", tool=TOOL_NAME)
+            raise ToolError(
+                "TOOL_INPUT_INVALID",
+                f"물질은 한 번에 {MAX_MATERIALS}개까지 조회할 수 있습니다.",
+                tool=TOOL_NAME,
+            )
 
         deadline = clock() + budget_seconds
-        memo: dict[str, tuple[str, Any]] = {}  # 같은 이름은 한 번만 부른다: ("ok", 원본 결과) | ("error", 코드)
+        # 같은 이름은 한 번만 부른다: ("ok", 원본 결과) | ("error", 코드)
+        memo: dict[str, tuple[str, Any]] = {}
         attempted = failed = 0
         last_error: ToolError | None = None
         results: list[dict[str, Any]] = []
@@ -145,7 +155,9 @@ def make_msds_lookup(
                 else:
                     attempted += 1
                     try:
-                        memo[key] = ("ok", client.lookup({"materials": [terms.get(name, name)]})["results"][0])
+                        lookup_term = terms.get(name, name)
+                        response = client.lookup({"materials": [lookup_term]})
+                        memo[key] = ("ok", response["results"][0])
                     except ToolError as exc:
                         failed += 1
                         last_error = exc
@@ -166,7 +178,9 @@ def make_msds_lookup(
     return lookup
 
 
-def build_msds_tool(settings: "Settings") -> tuple[Callable[[Mapping[str, Any]], Any], dict[str, Any]] | None:
+def build_msds_tool(
+    settings: "Settings",
+) -> tuple[Callable[[Mapping[str, Any]], Any], dict[str, Any]] | None:
     """KOSHA이면 (handler, parameters), MOCK이면 None."""
     if settings.msds_tool != "KOSHA":
         return None

@@ -8,7 +8,7 @@ from collections import Counter
 from decimal import Decimal, InvalidOperation
 
 from app.agent.evidence_collector.textutil import extract_json_object
-from app.exceptions import AgentRunError
+from app.exceptions import AgentRunError, LLMError
 from app.llm.llm_base import LLMClient
 from app.llm.llm_types import Message
 from app.llm.engines.llm_audit_report import SYSTEM_PROMPT
@@ -66,20 +66,28 @@ class AuditReportAgent:
 
     def run(self, data: AuditReportInput) -> AuditReportResult:
         prompt = json.dumps(data.model_dump(by_alias=True), ensure_ascii=False)
-        response = self._llm.chat([Message(role="user", content=prompt)], system=SYSTEM_PROMPT)
+        response = self._llm.chat(
+            [Message(role="user", content=prompt)],
+            system=SYSTEM_PROMPT,
+        )
         raw = extract_json_object(response.text or "")
         if not isinstance(raw, dict) or not isinstance(raw.get("items"), list):
-            raise AgentRunError("감사보고서 모델 응답을 해석할 수 없습니다.")
+            raise _run_error("감사보고서 모델 응답을 해석할 수 없습니다.")
 
         by_type = {item.query_type: item for item in data.items}
         drafts: list[AuditReportDraftItem] = []
+        seen: set[str] = set()
         for output in raw["items"]:
             if not isinstance(output, dict) or output.get("queryType") not in by_type:
-                raise AgentRunError("감사보고서 항목이 입력 집계와 일치하지 않습니다.")
-            source = by_type[output["queryType"]]
+                raise _run_error("감사보고서 항목이 입력 집계와 일치하지 않습니다.")
+            query_type = output["queryType"]
+            if query_type in seen:
+                raise _run_error("감사보고서 항목이 중복되었습니다.")
+            seen.add(query_type)
+            source = by_type[query_type]
             summary = output.get("summary")
             if not isinstance(summary, str) or not summary.strip():
-                raise AgentRunError("감사보고서 항목 요약이 비어 있습니다.")
+                raise _run_error("감사보고서 항목 요약이 비어 있습니다.")
             expected = _numbers(source.stats)
             actual = _text_numbers(summary)
             mismatch = Counter(expected) != Counter(actual)
@@ -89,15 +97,17 @@ class AuditReportAgent:
                 actual_numbers=_fmt(actual),
                 mismatches=["요약문 수치와 stats가 일치하지 않습니다."] if mismatch else [],
             )
-            drafts.append(AuditReportDraftItem(
-                query_type=source.query_type,
-                title=source.title,
-                summary=summary.strip(),
-                verification=verification,
-                evidence=source.evidence,
-            ))
+            drafts.append(
+                AuditReportDraftItem(
+                    query_type=source.query_type,
+                    title=source.title,
+                    summary=summary.strip(),
+                    verification=verification,
+                    evidence=source.evidence,
+                )
+            )
 
-        passed = len(drafts) == len(data.items) and all(
+        passed = seen == set(by_type) and all(
             item.verification.status == "MATCH" for item in drafts
         )
         return AuditReportResult(
@@ -110,3 +120,8 @@ class AuditReportAgent:
             overall_verification="PASS" if passed else "FAIL",
             data_snapshot=data.data_snapshot,
         )
+
+
+def _run_error(message: str) -> AgentRunError:
+    """공통 AgentRunError 계약(cause + steps)을 지키는 감사보고서 오류."""
+    return AgentRunError(LLMError(message, engine="AUDIT_REPORT"), steps=[])

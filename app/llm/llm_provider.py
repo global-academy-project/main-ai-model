@@ -79,7 +79,10 @@ def parse_bindings(raw: str | Mapping[str, Any] | None) -> dict[str, EngineBindi
             raise ValueError(f"SCENARIO_ENGINES[{key!r}]에 모르는 항목이 있습니다: {sorted(unknown)}")
         engine = canonical_engine(value.get("engine") or key)  # engine을 빼면 그 키의 자기 엔진. 대문자 이름도 받는다
         if engine not in _ENGINES:
-            raise ValueError(f"SCENARIO_ENGINES[{key!r}]의 engine은 {', '.join((*_ENGINES, *ENGINE_ALIASES))} 중 하나여야 합니다.")
+            allowed_engines = ", ".join((*_ENGINES, *ENGINE_ALIASES))
+            raise ValueError(
+                f"SCENARIO_ENGINES[{key!r}]의 engine은 {allowed_engines} 중 하나여야 합니다."
+            )
         model_id = value.get("model_id")
         if model_id is not None and (not isinstance(model_id, str) or not model_id.strip()):
             raise ValueError(f"SCENARIO_ENGINES[{key!r}]의 model_id가 비어 있습니다.")
@@ -143,6 +146,23 @@ class LLMClientProvider:
                 self._clients[cache_key] = client
             return client
 
+    def get_audit_report(self) -> LLMClient:
+        """감사보고서 초안 전용 클라이언트.
+
+        감사보고서는 채팅 시나리오가 아니므로 MODEL_KEYS에 억지로 넣지 않는다.
+        기존 감사 질의 엔진과 같은 모델 설정을 공유하되, 프롬프트·후처리는 AUDIT_REPORT 엔진이 담당한다.
+        """
+        source = self.binding_for("audit_query")
+        cache_key = ("audit_report", source.model_id)
+        with self._lock:
+            client = self._clients.get(cache_key)
+            if client is None:
+                from .engines.llm_audit_report import build_audit_report_client
+
+                client = build_audit_report_client(settings=self._settings, model_id=source.model_id)
+                self._clients[cache_key] = client
+            return client
+
     def describe(self) -> dict[str, dict[str, str | None]]:
         """키별로 실제 쓰이는 엔진·모델 (진단용. 키·비밀값은 들어 있지 않다)."""
         return {
@@ -155,7 +175,11 @@ class LLMClientProvider:
         # 엔진을 고르는 유일한 지점은 llm_factory다 (폐쇄망 차단·설정 검사도 거기서 한다).
         from .llm_factory import build_llm_client
 
-        return build_llm_client(settings=self._settings, selected_engine=engine, model_id=model_id)  # type: ignore[arg-type]
+        return build_llm_client(
+            settings=self._settings,
+            selected_engine=engine,
+            model_id=model_id,
+        )  # type: ignore[arg-type]
 
 
 def _module_model_id(name: str) -> str | None:

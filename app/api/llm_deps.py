@@ -58,3 +58,9 @@ def scenario_llm(key: str) -> Callable[[Request], LLMClient]:
 
     dependency.__name__ = f"scenario_llm_{name}"
     return dependency
+
+
+def audit_report_llm(request: Request) -> LLMClient:
+    """감사보고서 초안 전용 모델. 채팅 시나리오 선택과 분리한다."""
+    provider = _provider(request)
+    return provider.get_audit_report()

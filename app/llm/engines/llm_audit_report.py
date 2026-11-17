@@ -20,7 +20,13 @@ SYSTEM_PROMPT = """너는 감사보고서 요약 모델이다.
 {"items":[{"queryType":"허용된 queryType","summary":"stats 수치를 포함한 한 문장"}]}
 """
 
-SPEC = EngineSpec(model_id=None, device=None, revision=None, enable_thinking=None, local_files_only=None)
+SPEC = EngineSpec(
+    model_id=None,
+    device=None,
+    revision=None,
+    enable_thinking=None,
+    local_files_only=None,
+)
 
 
 class AuditReportClient(LLMClient):
@@ -39,5 +45,9 @@ class AuditReportClient(LLMClient):
         return text.strip()
 
 
-def build_audit_report_client(*, settings: Any, model_id: str | None = None) -> AuditReportClient:
+def build_audit_report_client(
+    *,
+    settings: Any,
+    model_id: str | None = None,
+) -> AuditReportClient:
     return AuditReportClient(build_config(SPEC, settings=settings, model_id=model_id, engine=ENGINE_NAME))
