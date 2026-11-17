@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import sys
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -16,8 +17,8 @@ spec = importlib.util.spec_from_file_location("ingest_via_api", ROOT / "scripts"
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-SIF = json.loads((ROOT / "samples" / "ingest_demo_sif.json").read_text(encoding="utf-8"))
-LAW = json.loads((ROOT / "samples" / "ingest_demo_law.json").read_text(encoding="utf-8"))
+sys.path.insert(0, str(ROOT / "tests"))
+from demo_data import LAW_REQ as LAW, SIF_REQ as SIF  # noqa: E402  (samples 폴더 없이 시험 안에 담은 데모 데이터)
 TOKEN = "test-token-value"
 
 
