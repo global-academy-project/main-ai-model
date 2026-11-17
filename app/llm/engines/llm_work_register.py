@@ -23,6 +23,12 @@ from ._base import EngineSpec, build_config
 ENGINE_NAME = "WORK_REGISTER"  # app/core/config.py의 Engine 이름
 OWNER = "B"
 
+# 계획 단계 LoRA 어댑터 (11/17). LLM_ADAPTERS 에 이 이름이 있을 때만 클라이언트에 어댑터 이름을 붙인다 (build_work_register_client).
+# 없으면 지금과 같다 (어댑터 없음, 긴 프롬프트). 쓰는 순서와 짧은 프롬프트의 원본은 app/agent/plan_adapter.py.
+# 어댑터는 학습한 기본 모델(같은 model_id·같은 버전)에만 붙는다. 이 엔진의 모델을 바꾸면 어댑터도 다시 학습한다.
+ADAPTER_NAME = "plan_brief"
+ADAPTER_ENABLED = True  # False면 LLM_ADAPTERS 에 있어도 붙이지 않는다
+
 SPEC = EngineSpec(
     model_id=None,          # 예: "Qwen/Qwen3-1.7B" 또는 로컬 경로 "D:/models/qwen3-1.7b". None이면 default 모델
     device=None,            # 예: "cuda". None이면 default
@@ -52,4 +58,7 @@ class WorkRegisterClient(LLMClient):
 
 def build_work_register_client(*, settings: Any, model_id: str | None = None) -> WorkRegisterClient:
     """엔진 등록표(engines/__init__.py)가 부른다. model_id는 시나리오 표의 값 (없으면 SPEC)."""
-    return WorkRegisterClient(build_config(SPEC, settings=settings, model_id=model_id, engine=ENGINE_NAME))
+    client = WorkRegisterClient(build_config(SPEC, settings=settings, model_id=model_id, engine=ENGINE_NAME))
+    if ADAPTER_ENABLED and ADAPTER_NAME in (getattr(settings, "llm_adapters", None) or {}):
+        client.adapter = ADAPTER_NAME  # 이 인스턴스만. router·B·E·F 는 같은 기본 모델에서 어댑터를 끄고 생성한다
+    return client

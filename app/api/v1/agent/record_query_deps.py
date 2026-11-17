@@ -15,7 +15,6 @@ from app.integrations import InternalApiClient
 
 RecordQueryLLM = Annotated[LLMClient, Depends(scenario_llm("daily_safety_log"))]
 
-
 def get_record_query_agent(
     llm: RecordQueryLLM,
     settings: Annotated[Settings, Depends(get_settings)],
