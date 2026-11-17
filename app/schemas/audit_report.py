@@ -5,9 +5,10 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 
 from .base_schemas import CamelModel
 
@@ -28,6 +29,12 @@ class AuditReportItem(CamelModel):
     records: list[dict[str, Any]] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def require_stats(self) -> "AuditReportItem":
+        if not self.stats:
+            raise ValueError("감사보고서 집계(stats)는 비어 있을 수 없습니다.")
+        return self
+
 
 class AuditReportInput(CamelModel):
     report_id: int = Field(strict=True, gt=0)
@@ -36,6 +43,24 @@ class AuditReportInput(CamelModel):
     date_to: str = Field(min_length=10, max_length=10)
     items: list[AuditReportItem] = Field(min_length=1)
     data_snapshot: dict[str, Any] | None = None
+
+    @field_validator("date_from", "date_to")
+    @classmethod
+    def valid_date(cls, value: str) -> str:
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("날짜는 YYYY-MM-DD 형식이어야 합니다.") from exc
+        return value
+
+    @model_validator(mode="after")
+    def valid_period_and_items(self) -> "AuditReportInput":
+        if self.date_from > self.date_to:
+            raise ValueError("조회 시작일은 종료일보다 늦을 수 없습니다.")
+        query_types = [item.query_type for item in self.items]
+        if len(query_types) != len(set(query_types)):
+            raise ValueError("감사보고서 조회 항목은 중복될 수 없습니다.")
+        return self
 
 
 class AuditVerification(CamelModel):
