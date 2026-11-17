@@ -26,6 +26,7 @@ from pathlib import Path
 
 DEFAULT_MAX_CHARS = 1500
 DEFAULT_MIN_CHARS = 250
+DEFAULT_MAX_CHUNKS = 8  # 임베딩 서버가 한 요청에서 받는 청크 수(EMBEDDING_MAX_BATCH_SIZE 기본값)
 SOURCE_TYPE = "ACCIDENT_REPORT"
 EMPTY_TAGS = ("accident_type", "hazard", "work_type", "cas", "ghs")
 DISPOSITIONS = ("통보", "주의", "시정", "개선", "모범", "징계", "경고", "권고", "회수", "감액", "변상")
@@ -296,6 +297,29 @@ def chunk_paragraphs(paras, max_chars: int, min_chars: int):
     return chunks
 
 
+def partition(items, max_n: int):
+    """items 를 max_n 개 이하의 묶음으로 균등하게 나눈다(순서 유지, 앞 묶음이 하나 더 많을 수 있다)."""
+    n = len(items)
+    if n <= max_n:
+        return [list(items)]
+    parts = -(-n // max_n)
+    base, extra = divmod(n, parts)
+    out, i = [], 0
+    for k in range(parts):
+        size = base + (1 if k < extra else 0)
+        out.append(list(items[i:i + size]))
+        i += size
+    return out
+
+
+def part_ident(ext_id: str, title: str, k: int, total: int):
+    """나뉜 묶음의 (external_id, title). 나뉘지 않으면 그대로."""
+    if total == 1:
+        return ext_id, clip(title, 300)
+    suffix = f" ({k}/{total})"
+    return f"{ext_id}-P{k}", clip(title, 300 - len(suffix)) + suffix
+
+
 def merge_small(chunks, max_chars: int, min_chars: int):
     """너무 짧은 청크(표지·제목만 있는 절)를 다음 청크에 붙인다(합쳐도 상한 이하일 때만)."""
     out, i = [], 0
@@ -419,15 +443,22 @@ def process_document(path: Path, manifest: dict, common: dict, opts) -> dict:
     strategy, hits = detect(lines)
 
     rows, stats = [], {"file": path.name, "doc_id": doc_id, "pages": len(pages), "strategy": strategy or "sections",
-                       "findings": 0, "chunks": 0, "overview_chunks": 0}
+                       "findings": 0, "chunks": 0, "overview_chunks": 0, "sources": 0, "split_sources": 0}
     base = {"doc_id": doc_id, "doc_title": doc_title, "source_file": path.name}
     if year is not None:
         base["year"] = year
 
     def add(src_id, title, section, chunks, kind, extra=None, prefix=()):
-        src = build_source(src_id, title, path, meta, common, "\n".join(c["text"] for c in chunks))
-        payload = dict(base, kind=kind, **(extra or {}))
-        rows.extend(emit_source(src, doc_title, section, chunks, payload, opts.minimal_payload, list(prefix)))
+        # 청크가 max_chunks_per_source 를 넘으면 원본을 여러 개(-P1, -P2 …)로 나눈다
+        parts = partition(chunks, opts.max_chunks_per_source)
+        for k, part in enumerate(parts, 1):
+            pid, ptitle = part_ident(src_id, title, k, len(parts))
+            src = build_source(pid, ptitle, path, meta, common, "\n".join(c["text"] for c in part))
+            payload = dict(base, kind=kind, **(extra or {}))
+            pre = [ptitle if x == title else x for x in prefix]
+            rows.extend(emit_source(src, doc_title, section, part, payload, opts.minimal_payload, pre))
+        stats["sources"] += len(parts)
+        stats["split_sources"] += len(parts) > 1
 
     if strategy:
         blocks, overview = split_findings(lines, hits)
@@ -459,13 +490,14 @@ def process_document(path: Path, manifest: dict, common: dict, opts) -> dict:
                 ch["section"] = title
                 all_chunks.append(ch)
         all_chunks = merge_small(all_chunks, opts.max_chars, opts.min_chars)
-        if all_chunks:
-            src = build_source(f"AUD-{doc_id}-DOC", doc_title, path, meta, common,
-                               "\n".join(c["text"] for c in all_chunks))
-            for idx, ch in enumerate(all_chunks):
+        parts = partition(all_chunks, opts.max_chunks_per_source) if all_chunks else []
+        for k, part in enumerate(parts, 1):
+            pid, ptitle = part_ident(f"AUD-{doc_id}-DOC", doc_title, k, len(parts))
+            src = build_source(pid, ptitle, path, meta, common, "\n".join(c["text"] for c in part))
+            for idx, ch in enumerate(part):
                 sec = ch["section"]
-                header = " > ".join(p for p in [doc_title, sec] if p)
-                payload = {k: [] for k in EMPTY_TAGS}
+                header = " > ".join(p for p in [ptitle, sec] if p)
+                payload = {k2: [] for k2 in EMPTY_TAGS}
                 if not opts.minimal_payload:
                     payload.update(base, kind="section", chunk_pages=[ch["page_start"], ch["page_end"]])
                     if sec:
@@ -476,6 +508,8 @@ def process_document(path: Path, manifest: dict, common: dict, opts) -> dict:
                             "locator": make_locator(ch["page_start"], ch["page_end"], clip(sec, 40)),
                             "payload": payload})
                 rows.append(row)
+        stats["sources"] += len(parts)
+        stats["split_sources"] += len(parts) > 1
     stats["chunks"] = len(rows)
     return {"rows": rows, "stats": stats}
 
@@ -521,6 +555,8 @@ def parse_args(argv=None):
     ap.add_argument("--license", help="manifest 에 없을 때 쓸 이용 조건(50자 이하)")
     ap.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS, help=f"청크 최대 글자 수(기본 {DEFAULT_MAX_CHARS})")
     ap.add_argument("--min-chars", type=int, default=DEFAULT_MIN_CHARS, help=f"끝 조각을 앞에 붙이는 기준(기본 {DEFAULT_MIN_CHARS})")
+    ap.add_argument("--max-chunks-per-source", type=int, default=DEFAULT_MAX_CHUNKS, metavar="N",
+                    help=f"원본 하나의 청크 수 상한(기본 {DEFAULT_MAX_CHUNKS}). 넘으면 원본을 -P1, -P2 … 로 나눈다")
     ap.add_argument("--overview", choices=("skip", "include"), default="skip",
                     help="지적사항이 잡힌 문서의 앞부분(감사 개요)을 넣을지(기본 skip)")
     ap.add_argument("--use-headings", action="store_true",
@@ -544,6 +580,9 @@ def collect_inputs(inputs):
 
 
 def run(args) -> int:
+    if args.max_chunks_per_source < 1:
+        say("[오류] --max-chunks-per-source 는 1 이상이어야 한다")
+        return 2
     if args.max_chars < 200 or args.min_chars < 0 or args.min_chars >= args.max_chars:
         say("[오류] --max-chars 는 200 이상, --min-chars 는 0 이상이면서 --max-chars 보다 작아야 한다")
         return 2
@@ -592,6 +631,9 @@ def run(args) -> int:
         say(f"{s['doc_id']:<8}{s['pages']:>5}  {s['strategy']:<9}{s['findings']:>5}{s['chunks']:>6}  {s['file']}")
     ids = {r["external_id"] for r in all_rows}
     say(f"합계: 문서 {len(all_stats)}개, 원본 {len(ids)}개, 청크 {len(all_rows)}개 -> {args.out}")
+    split = sum(s["split_sources"] for s in all_stats)
+    if split:
+        say(f"청크가 {args.max_chunks_per_source}개를 넘어 나눈 원본: {split}개(이름 끝에 -P1, -P2 …)")
     if args.preview:
         shown = {}
         for r in all_rows:

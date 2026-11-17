@@ -19,9 +19,7 @@ spec = importlib.util.spec_from_file_location("load_chunks", ROOT / "scripts" / 
 lc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lc)
 
-SAMPLE = ROOT / "samples" / "chunks_demo.jsonl"
-SIF_REQ = json.loads((ROOT / "samples" / "ingest_demo_sif.json").read_text(encoding="utf-8"))
-LAW_REQ = json.loads((ROOT / "samples" / "ingest_demo_law.json").read_text(encoding="utf-8"))
+from demo_data import LAW_REQ, SAMPLE, SIF_REQ  # noqa: E402  (samples 폴더 없이 시험 안에 담은 데모 데이터)
 
 
 @pytest.fixture(autouse=True)
