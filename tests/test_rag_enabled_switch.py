@@ -71,6 +71,9 @@ class _FakeSettings:
     def __init__(self, path):
         self.rag_backend_path = path
         self.rag_backend = "WRONG: agent_deps 는 rag_backend_path 를 써야 한다"
+        # get_tool_registry 는 check_rules·lookup_msds 실제 도구도 설정으로 정한다. MOCK 이면 둘 다 None (mock 그대로)
+        self.check_rules_tool = "MOCK"
+        self.msds_tool = "MOCK"
 
 
 @pytest.mark.parametrize("path", [DEFAULT_PATH, None])
@@ -82,4 +85,4 @@ def test_get_tool_registry_passes_rag_backend_path(monkeypatch, path):
     monkeypatch.setattr(deps, "build_tool_registry", lambda **kw: seen.update(kw) or "registry")
 
     assert deps.get_tool_registry.__wrapped__() == "registry"   # lru_cache 를 거치지 않고 직접 호출
-    assert seen == {"rag_backend": path}
+    assert seen == {"rag_backend": path, "check_rules_tool": None, "msds_tool": None}

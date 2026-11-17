@@ -40,7 +40,8 @@ def clean_env(monkeypatch):
 
 
 def settings(**kwargs) -> Settings:
-    return Settings(_env_file=None, network_env="OPEN", check_rules_tool="MOCK", **kwargs)
+    """msds_tool을 안 주면 MOCK. 코드 기본값(KOSHA)은 test_settings_default_is_kosha_and_needs_key가 따로 본다."""
+    return Settings(_env_file=None, network_env="OPEN", check_rules_tool="MOCK", **{"msds_tool": "MOCK", **kwargs})
 
 
 class FakeClient:
@@ -287,8 +288,17 @@ def test_through_real_client_with_fake_http(monkeypatch):
 # ── 설정 ──
 
 
-def test_settings_default_is_mock_and_needs_no_key():
-    s = settings()
+def test_settings_default_is_kosha_and_needs_key():
+    # 코드 기본값은 KOSHA다 (config.py). 키가 없으면 기동 때 막는다 (조용히 mock으로 남지 않게).
+    assert Settings.model_fields["msds_tool"].default == "KOSHA"
+    with pytest.raises(ValidationError, match="KOSHA_MSDS_SERVICE_KEY"):
+        Settings(_env_file=None, network_env="OPEN", check_rules_tool="MOCK")
+    s = Settings(_env_file=None, network_env="OPEN", check_rules_tool="MOCK", kosha_msds_service_key="TEST-KEY")
+    assert s.msds_tool == "KOSHA"
+
+
+def test_settings_mock_needs_no_key():
+    s = settings(msds_tool="MOCK")
     assert s.msds_tool == "MOCK" and s.kosha_msds_service_key is None
 
 
@@ -373,7 +383,9 @@ def test_registry_with_msds_tool_replaces_only_lookup_msds():
 def test_agent_deps_follows_settings(monkeypatch):
     import app.agent.agent_deps as deps
 
-    for value, real in ((settings(), False), (settings(msds_tool="KOSHA", kosha_msds_service_key="TEST-KEY"), True)):
+    # RAG는 끈다 (이 시험은 lookup_msds만 본다. 켜 두면 EMBEDDING_URL 이 없는 환경에서 검색 백엔드를 만들다 실패한다)
+    off = {"rag_enabled": False}
+    for value, real in ((settings(**off), False), (settings(msds_tool="KOSHA", kosha_msds_service_key="TEST-KEY", **off), True)):
         monkeypatch.setattr(deps, "get_settings", lambda value=value: value)
         deps.get_tool_registry.cache_clear()
         try:

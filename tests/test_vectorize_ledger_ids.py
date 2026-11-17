@@ -96,10 +96,11 @@ def test_ledger_id_counts(tmp_path):
     assert va.ledger_id_counts(path) == (1, 2)
 
 
-def test_option_default_is_off():
-    args = va.parse_args(["--dry-run"])
-    assert args.require_ledger_ids is False
+def test_option_default_is_on():
+    # 스크립트 기본값은 '켬'. 옛 서버가 만든 파일을 볼 때만 --no-require-ledger-ids 로 끈다.
+    assert va.parse_args(["--dry-run"]).require_ledger_ids is True
     assert va.parse_args(["--require-ledger-ids"]).require_ledger_ids is True
+    assert va.parse_args(["--no-require-ledger-ids"]).require_ledger_ids is False
 
 
 # ── run() 전체 흐름 (--check-only): PC 에서 실제로 났던 상황을 재현 ───────────────────────
@@ -115,7 +116,7 @@ def _record(n: int) -> dict:
     }
 
 
-def _run_check_only(tmp_path, monkeypatch, ledger_for):
+def _run_check_only(tmp_path, monkeypatch, ledger_for, *extra):
     records = [_record(i) for i in range(3)]
     monkeypatch.setattr(va, "load_records", lambda path: records)
     chunks = tmp_path / "05_chunks.jsonl"
@@ -132,7 +133,7 @@ def _run_check_only(tmp_path, monkeypatch, ledger_for):
         }))
     (vector_dir / "ds.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     args = va.parse_args(["--chunks", str(chunks), "--dataset-id", "ds", "--vector-dir", str(vector_dir),
-                          "--embedding-dim", "4", "--check-only", "--no-validation"])
+                          "--embedding-dim", "4", "--check-only", "--no-validation", *extra])
     out: list[str] = []
     return va.run(args, log=out.append), "\n".join(out)
 
@@ -145,9 +146,16 @@ def test_run_passes_with_new_server_ids(tmp_path, monkeypatch):
 
 
 def test_run_passes_with_old_server_but_warns(tmp_path, monkeypatch):
-    code, text = _run_check_only(tmp_path, monkeypatch, lambda i: ids(None, None))
+    # 옛 서버 파일은 기본(--require-ledger-ids 켬)이면 멈추므로, 끄고 본다
+    code, text = _run_check_only(tmp_path, monkeypatch, lambda i: ids(None, None), "--no-require-ledger-ids")
     assert code == 0
     assert "있음 0점 / 없음 3점" in text and "doc_id가 비게" in text
+
+
+def test_run_old_server_file_fails_by_default(tmp_path, monkeypatch):
+    with pytest.raises(va.IngestError, match="--require-ledger-ids") as caught:
+        _run_check_only(tmp_path, monkeypatch, lambda i: ids(None, None))
+    assert str(caught.value).count("장부 id(kb_source_id·kb_chunk_id)가 없음") == 3
 
 
 def test_run_fails_when_ids_required_but_missing(tmp_path, monkeypatch):
