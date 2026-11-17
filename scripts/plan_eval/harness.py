@@ -23,10 +23,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from datetime import date
+
 from app.agent import plan_brief as pb
+from app.agent.plan_adapter import ADAPTER_SYSTEM_PROMPT, build_adapter_input
 from app.agent.evidence_collector.models import WorkContext
 from app.agent.evidence_collector.planner import build_planner_input
 from app.agent.evidence_collector.textutil import extract_json_object, merge, one_line, str_list
+from app.agent.slots import merge_slots
 from app.agent.text_rules import EQUIPMENT, MATERIALS, find_terms
 
 KINDS = ("plain", "negation", "conditional", "out_of_dict", "multi", "none", "distractor")
@@ -87,8 +91,21 @@ def load_cases(path: Path | str = DEFAULT_EVAL_SET) -> list[Case]:
     return cases
 
 
+SLOT_DATE = date(2026, 1, 15)  # 여러 줄 결합에 쓰는 고정 날짜 (장비·물질에는 영향 없음, 시각 해석만 쓴다)
+
+
 def slot_terms(text: str) -> tuple[list[str], list[str]]:
-    """슬롯 추출(slots.py)과 같은 호출: (장비, 물질). 사전에 있는 말만 표준 이름으로, 부정된 것은 뺀다."""
+    """슬롯 추출(slots.py)과 같은 호출: (장비, 물질). 사전에 있는 말만 표준 이름으로, 부정된 것은 뺀다.
+
+    여러 줄(발화가 줄바꿈으로 이어진 문장)은 서버처럼 줄마다 merge_slots 로 이어 붙인다. 뒤 줄의 "말고·대신"이 앞 줄에서 잡힌 것을
+    빼므로, 문장 전체에 한 번에 find_terms 를 부르는 것과 다를 수 있다. 한 줄 문장은 지금까지와 같다.
+    """
+    if "\n" in text:
+        slots = None
+        for line in text.split("\n"):
+            if line.strip():
+                slots = merge_slots(slots, line, today=SLOT_DATE)
+        return (list(slots.equipment), list(slots.nearby_materials)) if slots else ([], [])
     equipment, _ = find_terms(text, EQUIPMENT)
     materials, _ = find_terms(text, MATERIALS)
     return equipment, materials
@@ -102,8 +119,15 @@ def work_context(case: Case) -> WorkContext:
     )
 
 
-def build_messages(case: Case) -> tuple[str, str]:
-    """(system, user). 서버가 계획 LLM에 보내는 것과 같다."""
+PROMPTS = ("long", "short")
+
+
+def build_messages(case: Case, prompt: str = "long") -> tuple[str, str]:
+    """(system, user). long = 서버가 어댑터 없이 계획 LLM에 보내는 것, short = 어댑터를 쓸 때(plan_adapter.py)와 같은 것."""
+    if prompt == "short":
+        return ADAPTER_SYSTEM_PROMPT, build_adapter_input(work_context(case))
+    if prompt != "long":
+        raise ValueError(f"prompt는 {', '.join(PROMPTS)} 중 하나여야 합니다: {prompt}")
     return pb.build_brief_prompt(), build_planner_input(work_context(case))
 
 
@@ -269,12 +293,14 @@ def _mean(values: Sequence[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
-def summarize(records: Sequence[dict[str, Any]], *, model: str = "", dtype: str = "", revision: str = "") -> dict[str, Any]:
+def summarize(
+    records: Sequence[dict[str, Any]], *, model: str = "", dtype: str = "", revision: str = "", prompt: str = "long", adapter: str = "",
+) -> dict[str, Any]:
     n = len(records)
     parsed = [r for r in records if r["parsed"]]
     summaries_ok = [r for r in parsed if r["summary_ok"]]
     out: dict[str, Any] = {
-        "model": model, "dtype": dtype, "revision": revision, "n": n,
+        "model": model, "dtype": dtype, "revision": revision, "prompt": prompt, "adapter": adapter, "n": n,
         "format": {
             "json_parse_rate": _div(len(parsed), n),
             "schema_rate": _div(sum(r["schema_ok"] for r in records), n),
@@ -330,16 +356,16 @@ def summarize(records: Sequence[dict[str, Any]], *, model: str = "", dtype: str 
 
 def evaluate(
     cases: Sequence[Case], gen_fn: GenFn, *, model: str = "", dtype: str = "", revision: str = "",
-    progress: Callable[[int, int, Case], None] | None = None,
+    progress: Callable[[int, int, Case], None] | None = None, prompt: str = "long", adapter: str = "",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for i, case in enumerate(cases, 1):
-        system, user = build_messages(case)
+        system, user = build_messages(case, prompt)
         gen = gen_fn(system, user)
         records.append(score_case(case, gen.text, gen))
         if progress:
             progress(i, len(cases), case)
-    return records, summarize(records, model=model, dtype=dtype, revision=revision)
+    return records, summarize(records, model=model, dtype=dtype, revision=revision, prompt=prompt, adapter=adapter)
 
 
 # ── 저장 ──
