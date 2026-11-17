@@ -13,7 +13,7 @@ from app.llm.llm_base import LLMClient
 from app.tools.record_search import make_search_records_tool
 from app.integrations import InternalApiClient
 
-RecordQueryLLM = Annotated[LLMClient, Depends(scenario_llm("audit_query"))]
+RecordQueryLLM = Annotated[LLMClient, Depends(scenario_llm("daily_safety_log"))]
 
 
 def get_record_query_agent(
