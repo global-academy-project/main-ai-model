@@ -40,6 +40,7 @@ from .evidence_collector.vocab import (
     Corpus,
     EvidenceRequirement,
 )
+from .plan_adapter import ADAPTER_SYSTEM_PROMPT, adapter_ready, build_adapter_input
 from .text_rules import EQUIPMENT, LOCATION_WORDS, MATERIALS, POSITION_WORDS, is_negated
 
 logger = logging.getLogger(__name__)
@@ -185,10 +186,13 @@ class BriefPlanner(Planner):
 
     def __init__(self, *, llm: LLMClient, corpora: Mapping[str, Corpus], max_tokens: int = BRIEF_MAX_TOKENS) -> None:
         super().__init__(llm=llm, corpora=corpora, max_tokens=max_tokens)
-        self._system = build_brief_prompt()
+        # 학습한 어댑터를 쓸 수 있으면 학습 때와 같은 짧은 프롬프트 (plan_adapter.py). 아니면 지금까지의 긴 프롬프트
+        self._short = adapter_ready(llm)
+        self._system = ADAPTER_SYSTEM_PROMPT if self._short else build_brief_prompt()
+        logger.info("계획 프롬프트: %s", "어댑터용 짧은 것" if self._short else "기본(긴 것)")
 
     def plan(self, work: WorkContext) -> Plan:
-        user = build_planner_input(work)
+        user = build_adapter_input(work) if self._short else build_planner_input(work)
         raw = extract_json_object(self._ask(user))
         if raw is None:
             logger.info("계획 응답 JSON 파싱 실패, 1회 재시도")
