@@ -409,3 +409,94 @@ def test_corrupt_pdf_is_input_error(tmp_path):
     pdf = tmp_path / "01_a.pdf"
     pdf.write_bytes(b"not a pdf")
     assert ca.main([str(pdf), "-o", str(tmp_path / "o.jsonl")]) == 2
+
+
+# ------------------------------------------------------------ 원본당 청크 수 상한(기본 8)
+def long_finding_pages(n_par: int = 80):
+    """청크가 여러 개 나오는 긴 지적사항 두 건(문단마다 마침표로 끝나 문단이 합쳐지지 않는다)."""
+    return ["제 목 긴 지적 하나\n" + body(n_par) + "\n- 1 -", "제 목 짧은 지적\n" + body(2)]
+
+
+@pytest.mark.parametrize("n,expect", [(1, [1]), (8, [8]), (9, [5, 4]), (16, [8, 8]), (17, [6, 6, 5]), (25, [7, 6, 6, 6])])
+def test_partition_sizes_are_balanced_and_capped(n, expect):
+    parts = ca.partition(list(range(n)), 8)
+    assert [len(p) for p in parts] == expect
+    assert [x for p in parts for x in p] == list(range(n))  # 순서·누락 없음
+
+
+def test_part_ident():
+    assert ca.part_ident("AUD-1-001", "제목", 1, 1) == ("AUD-1-001", "제목")
+    assert ca.part_ident("AUD-1-001", "제목", 2, 3) == ("AUD-1-001-P2", "제목 (2/3)")
+    pid, title = ca.part_ident("X", "가" * 400, 1, 2)
+    assert len(title) == 300 and title.endswith(" (1/2)")
+
+
+def test_long_finding_is_split_into_sources_of_at_most_8(tmp_path):
+    p = write_pages(tmp_path, "01_긴.txt", long_finding_pages())
+    code, rows, _ = run_cli(tmp_path, "--max-chars", "200", "--min-chars", "50", inputs=[p])
+    assert code == 0
+    by = {}
+    for r in rows:
+        by.setdefault(r["external_id"], []).append(r)
+    assert all(len(v) <= 8 for v in by.values())
+    parts = sorted(k for k in by if k.startswith("AUD-01-001-P"))
+    assert len(parts) >= 2 and "AUD-01-001" not in by
+    assert "AUD-01-002" in by  # 짧은 지적사항은 그대로
+    for k in parts:
+        assert [r["chunk_index"] for r in by[k]] == list(range(len(by[k])))
+        assert by[k][0]["title"].endswith(f"({parts.index(k) + 1}/{len(parts)})")
+        assert by[k][0]["embedding_text"].startswith(f"긴 > {by[k][0]['title']}\n")
+    assert len({by[k][0]["content_sha256"] for k in parts}) == len(parts)
+
+
+def test_split_keeps_all_text_in_order(tmp_path):
+    p = write_pages(tmp_path, "01_긴.txt", long_finding_pages())
+    _, split, _ = run_cli(tmp_path, "--max-chars", "200", "--min-chars", "50", inputs=[p], out="s.jsonl")
+    _, whole, _ = run_cli(tmp_path, "--max-chars", "200", "--min-chars", "50", "--max-chunks-per-source", "1000",
+                          inputs=[p], out="w.jsonl")
+    assert "\n".join(r["text"] for r in split if r["external_id"].startswith("AUD-01-001")) == \
+        "\n".join(r["text"] for r in whole if r["external_id"] == "AUD-01-001")
+    assert {r["external_id"] for r in whole} == {"AUD-01-001", "AUD-01-002"}  # 상한을 올리면 나뉘지 않는다
+
+
+def test_fallback_doc_is_split_too(tmp_path):
+    pages = ["제목 없는 보고\n□ 절 하나\n" + body(120)]
+    p = write_pages(tmp_path, "09_개요.txt", pages)
+    code, rows, _ = run_cli(tmp_path, "--max-chars", "200", "--min-chars", "50", inputs=[p])
+    assert code == 0
+    ids = sorted({r["external_id"] for r in rows})
+    assert ids[0].startswith("AUD-09-DOC-P") and len(ids) >= 2
+    for i in ids:
+        grp = [r for r in rows if r["external_id"] == i]
+        assert len(grp) <= 8 and [r["chunk_index"] for r in grp] == list(range(len(grp)))
+        assert grp[0]["title"].endswith(f"({ids.index(i) + 1}/{len(ids)})")
+        assert grp[0]["embedding_text"].split("\n")[0].split(" > ")[0] == grp[0]["title"]  # 머리말은 (k/n) 붙은 제목으로 시작
+
+
+def test_default_limit_is_8(tmp_path):
+    assert ca.parse_args(["x"]).max_chunks_per_source == 8 == ca.DEFAULT_MAX_CHUNKS
+
+
+def test_bad_max_chunks_option(tmp_path, title_pdf):
+    for v in ("0", "-3"):
+        code, _, outp = run_cli(tmp_path, "--max-chunks-per-source", v, inputs=[title_pdf])
+        assert code == 2 and not outp.exists()
+
+
+def test_stats_count_sources_and_splits(tmp_path):
+    p = write_pages(tmp_path, "01_긴.txt", long_finding_pages())
+    st = tmp_path / "s.json"
+    _, rows, _ = run_cli(tmp_path, "--max-chars", "200", "--min-chars", "50", "--stats", st, inputs=[p])
+    data = json.loads(st.read_text(encoding="utf-8"))[0]
+    assert data["sources"] == len({r["external_id"] for r in rows}) and data["split_sources"] == 1
+
+
+def test_split_output_has_no_chunk_count_warning_in_load_chunks(tmp_path):
+    p = write_pages(tmp_path, "01_긴.txt", long_finding_pages())
+    _, rows, outp = run_cli(tmp_path, "--max-chars", "200", "--min-chars", "50", inputs=[p])
+    reqs, errs = lc.build_requests([outp], {})
+    assert not errs and all(len(r["chunks"]) <= 8 for _, r in reqs)
+    import ingest_via_api as core
+    for _, r in reqs:
+        e, w, _ = core.validate_request(r)
+        assert not e and not any("한 번에 8개" in m for m in w)

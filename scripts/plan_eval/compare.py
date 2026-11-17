@@ -1,12 +1,14 @@
 """run_quality가 만든 *.summary.json 여러 개를 한 표로 비교한다 (마크다운으로 출력, --out이면 파일로도 저장).
 
     python -m scripts.plan_eval.compare out/plan_eval/*.summary.json --out out/plan_eval/compare.md
+파워셸은 *를 풀어 주지 않아서(T26) 이 스크립트가 직접 푼다. 따옴표로 감싸도 된다.
 규칙만(모델 없이 슬롯 사전만 쓴 경우)의 값은 첫 파일에서 읽는다 (모든 파일에 같은 값이 들어 있다).
 """
 
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import sys
 from collections.abc import Sequence
@@ -23,7 +25,22 @@ def _num(value: float | None, digits: int = 1) -> str:
 
 
 def _label(summary: dict[str, Any]) -> str:
-    return f"{summary['model'].split('/')[-1]} ({summary['dtype']})"
+    extra = (", 짧은 프롬프트" if summary.get("prompt", "long") == "short" else "") + (f", +{summary['adapter']}" if summary.get("adapter") else "")
+    return f"{summary['model'].split('/')[-1]} ({summary['dtype']}{extra})"
+
+
+def expand_paths(patterns: Sequence[str]) -> list[str]:
+    """*·? 가 든 인자는 직접 푼다 (윈도 파워셸은 풀지 않고 그대로 넘겨 Errno 22 가 났다). 맞는 파일이 없으면 ValueError."""
+    paths: list[str] = []
+    for pattern in patterns:
+        if any(ch in pattern for ch in "*?["):
+            found = sorted(glob.glob(pattern))
+            if not found:
+                raise ValueError(f"맞는 파일이 없습니다: {pattern}")
+            paths += found
+        else:
+            paths.append(pattern)
+    return list(dict.fromkeys(paths))  # 같은 파일이 두 번 들어와도 한 번만
 
 
 def render(summaries: Sequence[dict[str, Any]]) -> str:
@@ -43,6 +60,11 @@ def render(summaries: Sequence[dict[str, Any]]) -> str:
     table("형식", [
         ("평가 문장 수", [str(s["n"]) for s in summaries]),
         ("모델 revision (커밋)", [(s.get("revision") or "-")[:10] for s in summaries]),
+        ("프롬프트", ["짧음(어댑터용)" if s.get("prompt", "long") == "short" else "긴 것(기본)" for s in summaries]),
+        ("어댑터 (학습한 기본 모델 판과 일치)", [
+            "-" if not s.get("adapter") else f"{s['adapter']} ({ {True: '일치', False: '**불일치**', None: '모름'}[(s.get('adapter_info') or {}).get('revision_match')] })"
+            for s in summaries
+        ]),
         ("JSON 파싱 성공(첫 시도)", [_pct(s["format"]["json_parse_rate"]) for s in summaries]),
         ("키·자료형 맞음", [_pct(s["format"]["schema_rate"]) for s in summaries]),
         ("생성 한도(max_new_tokens)에서 잘림", [_pct(s["format"]["max_tokens_cut_rate"]) for s in summaries]),
@@ -98,7 +120,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("summaries", nargs="+")
     parser.add_argument("--out", default="")
     args = parser.parse_args(argv)
-    summaries = [json.loads(Path(p).read_text(encoding="utf-8")) for p in args.summaries]
+    summaries = [json.loads(Path(p).read_text(encoding="utf-8")) for p in expand_paths(args.summaries)]
     text = render(summaries)
     print(text)
     if args.out:

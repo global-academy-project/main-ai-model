@@ -76,9 +76,13 @@ _PARTICLES = ("에서는", "에서", "에는", "으로", "에", "의", "은", "�
 # '말고도'(그 밖에도)는 부정이 아니다. False면 변경 전과 같다.
 REPLACE_NEGATION = True
 _REPLACE_WORDS = r"|말고(?!도)|대신|아니라|아니고" if REPLACE_NEGATION else ""
+# 정중형·완료형 부정('안 씁니다', '안 썼음', '쓰지 않음', '필요하지 않음', '투입하지 않음')도 부정이다 (T28). 사전 단어 바로 뒤에서만 본다.
+# 동사는 쓰다·사용·투입·필요·동원·가동으로 한정한다 ('~하지 않'을 통째로 넓히면 '점검하지 않으면' 같은 말이 장비를 뺀다). False면 변경 전과 같다.
+POLITE_NEGATION = True
+_POLITE_WORDS = r"|안\s*(?:씁|썼|합|했)|(?:쓰|사용하|투입하|필요하|동원하|가동하)지\s*않|필요치\s*않" if POLITE_NEGATION else ""
 NEGATION_AFTER = re.compile(
     r"^[ \t]*(?:은|는|도|을|를|이|가)?[ \t]*(?:"
-    r"안\s*(?:씀|써|쓴|쓸|쓰|함|해|한)|사용\s*(?:안|하지|않|없)|미사용|없음|없이|필요\s*없|제외" + _REPLACE_WORDS +
+    r"안\s*(?:씀|써|쓴|쓸|쓰|함|해|한)|사용\s*(?:안|하지|않|없)|미사용|없음|없이|필요\s*없|제외" + _REPLACE_WORDS + _POLITE_WORDS +
     r")"
 )
 SENTENCE_SPLIT = re.compile(r"[.!?\n]+")
