@@ -28,8 +28,12 @@ def _fake_request_items(operation, parameters):
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch, tmp_path):
-    for name in ("MSDS_TOOL", "KOSHA_MSDS_SERVICE_KEY", "RAG_ENABLED", "INTERNAL_API_BASE_URL", "INTERNAL_API_TOKEN"):
+    for name in ("KOSHA_MSDS_SERVICE_KEY", "INTERNAL_API_BASE_URL", "INTERNAL_API_TOKEN"):
         monkeypatch.delenv(name, raising=False)
+    # 이 시험은 lookup_msds만 본다. RAG를 켜 두면(기본) 도구 등록이 검색 백엔드를 만들다 EMBEDDING_URL이 없는 환경에서
+    # 설정 오류(종료 코드 2)가 난다 (11/17 PC에서 3건 실패).
+    monkeypatch.setenv("RAG_ENABLED", "false")
+    monkeypatch.setenv("MSDS_TOOL", "MOCK")  # 코드 기본값은 KOSHA(키 필요). 이 시험들은 MOCK에서 시작하고 KOSHA는 시험 안에서 켠다
     monkeypatch.setenv("NETWORK_ENV", "OPEN")
     monkeypatch.setenv("CHECK_RULES_TOOL", "MOCK")
     monkeypatch.chdir(tmp_path)  # .env를 읽지 않게

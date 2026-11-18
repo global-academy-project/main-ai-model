@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 # 물질: 표준 이름 → 다른 표기. 산소는 측정값과 헷갈리므로 넣지 않는다.
 MATERIALS: dict[str, tuple[str, ...]] = {
@@ -55,6 +55,17 @@ EQUIPMENT: dict[str, tuple[str, ...]] = {
     "드릴": ("드릴",),
 }
 
+# 현장 문장 측정(11/17)에서 사전 밖이라 놓친 말을 더한다 (T30). 임시값, 안전 담당 확인 전.
+# 사다리차는 사다리가 아니다: 사전에 없어서 '사다리'로 잡혔다. 황산·염산·질산·초산은 흔한 약품이다.
+# MSDS 조회어(msds_setup.LOOKUP_TERMS)는 PC에서 공단 실측 뒤에 더한다 (표에 없으면 이름 그대로 조회한다). False면 변경 전과 같다.
+EXTENDED_VOCAB = True
+if EXTENDED_VOCAB:
+    EQUIPMENT["사다리차"] = ("사다리차",)
+    MATERIALS["황산"] = ("황산",)
+    MATERIALS["염산"] = ("염산",)
+    MATERIALS["질산"] = ("질산",)
+    MATERIALS["초산"] = ("초산", "아세트산")
+
 # 장소를 이루는 단어 (임시)
 LOCATION_WORDS = frozenset({
     "반응기", "배관", "탱크", "펌프", "지붕", "옥상", "공장", "창고", "라인", "랙", "덕트", "보일러",
@@ -76,12 +87,33 @@ _PARTICLES = ("에서는", "에서", "에는", "으로", "에", "의", "은", "�
 # '말고도'(그 밖에도)는 부정이 아니다. False면 변경 전과 같다.
 REPLACE_NEGATION = True
 _REPLACE_WORDS = r"|말고(?!도)|대신|아니라|아니고" if REPLACE_NEGATION else ""
+# 정중형·완료형 부정('안 씁니다', '안 썼음', '쓰지 않음', '필요하지 않음', '투입하지 않음')도 부정이다 (T28). 사전 단어 바로 뒤에서만 본다.
+# 동사는 쓰다·사용·투입·필요·동원·가동으로 한정한다 ('~하지 않'을 통째로 넓히면 '점검하지 않으면' 같은 말이 장비를 뺀다). False면 변경 전과 같다.
+POLITE_NEGATION = True
+_POLITE_WORDS = r"|안\s*(?:씁|썼|합|했)|(?:쓰|사용하|투입하|필요하|동원하|가동하)지\s*않|필요치\s*않" if POLITE_NEGATION else ""
+# '사용 금지'·'쓸 일 없어서'·'쓸 계획이 없음'·'쓸 필요가 없음'도 쓰지 않는다는 뜻이다 (T30). 사전 단어 바로 뒤에서만 본다. False면 변경 전과 같다.
+# '사용 금지 해제·표지·표시'는 금지가 풀렸거나 표지 이야기라 부정으로 보지 않는다 (작업 분류가 화기를 놓치지 않게).
+PROHIBIT_NEGATION = True
+_PROHIBIT_WORDS = r"|사용\s*금지(?!\s*(?:해제|해지|풀|표지|표시|푯말|스티커))|쓸\s*(?:일|계획|필요)\s*(?:이|가)?\s*없" if PROHIBIT_NEGATION else ""
 NEGATION_AFTER = re.compile(
     r"^[ \t]*(?:은|는|도|을|를|이|가)?[ \t]*(?:"
-    r"안\s*(?:씀|써|쓴|쓸|쓰|함|해|한)|사용\s*(?:안|하지|않|없)|미사용|없음|없이|필요\s*없|제외" + _REPLACE_WORDS +
+    r"안\s*(?:씀|써|쓴|쓸|쓰|함|해|한)|사용\s*(?:안|하지|않|없)|미사용|없음|없이|필요\s*없|제외" + _REPLACE_WORDS + _POLITE_WORDS + _PROHIBIT_WORDS +
     r")"
 )
 SENTENCE_SPLIT = re.compile(r"[.!?\n]+")
+
+# 긴 이름 안의 짧은 이름은 잡지 않는다 (T25). '메탄올'에서 '메탄'(다른 물질), '황화수소'에서 '수소'가 따로 잡혀
+# 주변 물질·MSDS 조회·허가서 표에 잘못된 물질이 들어갔다. False면 변경 전과 같다 (부분 문자열이면 무엇이든 잡는다).
+LONGEST_TERM_FIRST = True
+# 사전에는 없지만 사전 단어를 품은 다른 물질 이름 (임시값, 안전 담당 확인 전). 이 이름 안에서는 사전 단어를 잡지 않는다.
+# 과산화수소(수소 아님), 이·일·아산화질소(질소 아님), 염소산·차아염소산·과염소산(염소 아님), 이산화염소(염소 아님),
+# 프로판올·이소프로판올(프로판 아님). 사전 안의 긴 이름(메탄올, 황화수소 등)은 따로 적지 않아도 같은 방식으로 걸러진다.
+CONTAINING_NAMES = ("과산화수소", "산화질소", "염소산", "산화염소", "프로판올")
+if EXTENDED_VOCAB:  # 황산·질산·초산·염산을 품은 다른 물질 (초산에틸은 에틸아세테이트, 아황산가스는 이산화황, 황산구리·질산칼륨은 염). 임시값
+    CONTAINING_NAMES += (
+        "초산에틸", "초산비닐", "아질산", "질산염", "질산암모늄", "질산칼륨", "질산나트륨", "아황산", "황산염", "황산화물", "과황산",
+        "황산구리", "황산나트륨", "황산암모늄", "황산알루미늄", "황산칼슘", "황산마그네슘", "염산염",
+    )
 
 
 def sentences(text: str) -> list[str]:
@@ -97,9 +129,10 @@ def find_terms(text: str, vocab: dict[str, tuple[str, ...]]) -> tuple[list[str],
     """사전 단어를 찾는다. (언급 순서대로 쓰는 것, 부정된 것)."""
     found: list[tuple[int, str]] = []
     negated: list[tuple[int, str]] = []
+    covers = _covering_spans(text, vocab) if LONGEST_TERM_FIRST else ()  # 더 긴 이름이 차지한 구간 (T25)
     for canonical, aliases in vocab.items():
         for alias in sorted(aliases, key=len, reverse=True):
-            pos = _find_word(text, alias)
+            pos = _find_word(text, alias, covers)
             if pos is None:
                 continue
             target = negated if is_negated(text, pos + len(alias)) else found
@@ -108,10 +141,13 @@ def find_terms(text: str, vocab: dict[str, tuple[str, ...]]) -> tuple[list[str],
     return [c for _, c in sorted(found)], [c for _, c in sorted(negated)]
 
 
-def _find_word(text: str, word: str) -> int | None:
-    """대소문자 무시 검색. 영문 약어(IPA, LPG)는 앞뒤가 영문이면 단어 일부로 보고 건너뛴다."""
+def _find_word(text: str, word: str, covers: Sequence[tuple[int, int]] = (), start: int = 0) -> int | None:
+    """대소문자 무시 검색. 영문 약어(IPA, LPG)는 앞뒤가 영문이면 단어 일부로 보고 건너뛴다.
+
+    covers: 더 긴 이름이 차지한 구간 (T25). 그 안에 통째로 든 자리는 건너뛴다. 비어 있으면 변경 전과 같다.
+    start: 이 위치부터 찾는다.
+    """
     lowered, needle = text.lower(), word.lower()
-    start = 0
     while (pos := lowered.find(needle, start)) != -1:
         if needle.isascii():
             before = lowered[pos - 1] if pos > 0 else " "
@@ -119,8 +155,27 @@ def _find_word(text: str, word: str) -> int | None:
             if before.isascii() and before.isalnum() or after.isascii() and after.isalnum():
                 start = pos + 1
                 continue
+        if any(s <= pos and pos + len(needle) <= e and e - s > len(needle) for s, e in covers):
+            start = pos + 1  # 더 긴 이름 안의 일부 (예: 메탄올 안의 메탄)
+            continue
         return pos
     return None
+
+
+def _spans(text: str, word: str) -> list[tuple[int, int]]:
+    """word가 text에 나오는 모든 자리 (시작, 끝). 영문 약어 경계 규칙은 _find_word와 같다."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while (pos := _find_word(text, word, start=start)) is not None:
+        spans.append((pos, pos + len(word)))
+        start = pos + 1
+    return spans
+
+
+def _covering_spans(text: str, vocab: dict[str, tuple[str, ...]]) -> list[tuple[int, int]]:
+    """사전의 모든 표기와 CONTAINING_NAMES가 text에서 차지한 구간. 이보다 짧은 단어는 그 안에서 잡지 않는다."""
+    words = [alias for aliases in vocab.values() for alias in aliases] + list(CONTAINING_NAMES)
+    return [span for word in words for span in _spans(text, word)]
 
 
 def material_of(token: str) -> str | None:

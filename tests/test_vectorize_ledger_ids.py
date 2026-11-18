@@ -96,9 +96,10 @@ def test_ledger_id_counts(tmp_path):
     assert va.ledger_id_counts(path) == (1, 2)
 
 
-def test_option_default_requires_catalog_ids():
-    args = va.parse_args(["--dry-run"])
-    assert args.require_ledger_ids is True
+def test_option_default_is_on():
+    # 스크립트 기본값은 '켬'. 옛 서버가 만든 파일을 볼 때만 --no-require-ledger-ids 로 끈다.
+    assert va.parse_args(["--dry-run"]).require_ledger_ids is True
+    assert va.parse_args(["--require-ledger-ids"]).require_ledger_ids is True
     assert va.parse_args(["--no-require-ledger-ids"]).require_ledger_ids is False
 
 
@@ -112,15 +113,6 @@ def _record(n: int) -> dict:
         "text": "본문", "embed_text": "임베딩 문장", "site_id": 0, "flagged": False,
         "title": "제목", "locator": "위치", "year": 2024, "severity": "FATAL",
         "accident_type": [], "hazard": [], "work_type": [], "cas": [], "ghs": [],
-        "sif_potential": None,
-        "tag_status": {
-            "severity": "KNOWN", "accident_type": "UNKNOWN", "hazard": "UNKNOWN",
-            "work_type": "UNKNOWN", "substance": "UNKNOWN", "ghs": "UNKNOWN",
-            "sif_potential": "UNKNOWN",
-        },
-        "tagging_source": "SIF_STRUCTURED_RULES",
-        "tagging_version": "sif-structured-v1+tag-codes-v5",
-        "substances": [],
     }
 
 
@@ -154,9 +146,16 @@ def test_run_passes_with_new_server_ids(tmp_path, monkeypatch):
 
 
 def test_run_passes_with_old_server_but_warns(tmp_path, monkeypatch):
+    # 옛 서버 파일은 기본(--require-ledger-ids 켬)이면 멈추므로, 끄고 본다
     code, text = _run_check_only(tmp_path, monkeypatch, lambda i: ids(None, None), "--no-require-ledger-ids")
     assert code == 0
     assert "있음 0점 / 없음 3점" in text and "doc_id가 비게" in text
+
+
+def test_run_old_server_file_fails_by_default(tmp_path, monkeypatch):
+    with pytest.raises(va.IngestError, match="--require-ledger-ids") as caught:
+        _run_check_only(tmp_path, monkeypatch, lambda i: ids(None, None))
+    assert str(caught.value).count("장부 id(kb_source_id·kb_chunk_id)가 없음") == 3
 
 
 def test_run_fails_when_ids_required_but_missing(tmp_path, monkeypatch):
