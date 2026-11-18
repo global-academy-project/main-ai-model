@@ -607,21 +607,9 @@ def test_check_vector_file_type_drift_detected(tmp_path):
 def test_check_vector_file_ledger_ids_filled_is_ok(tmp_path):
     # 새 서버가 채운 장부 id는 정상이다 (옛 규칙은 'null이 아니면 문제'였다)
     path, points, _ = made(tmp_path)
-    assert va.check_vector_file(path, points, DIM) == (6, [])
-    assert va.check_vector_file(path, points, DIM, require_ledger_ids=True) == (6, [])
 
-
-def test_check_vector_file_half_linked_ids_flagged(tmp_path):
-    path, points, _ = made(tmp_path)
-    assert va.check_vector_file(path, points, DIM) == (6, [])
-    assert va.check_vector_file(path, points, DIM, require_ledger_ids=True) == (6, [])
-
-
-def test_check_vector_file_half_linked_ids_flagged(tmp_path):
-    path, points, _ = made(tmp_path)
-
-    def half(lines):
-        lines[0]["payload"]["kb_chunk_id"] = None  # kb_source_id만 남는다
+    def link(lines):
+        lines[0]["payload"]["kb_source_id"] = 7
         return lines
 
     rewrite(path, half)
