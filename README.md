@@ -35,6 +35,11 @@ and `QDRANT_URL` when enabling RAG; setting `EMBEDDING_URL` alone does not enabl
 If embedding authentication is required, pass the same `EMBEDDING_API_KEY` to
 both containers.
 
+## Near-miss tagging
+
+사내 아차사고 규칙 태깅, 시나리오 C 보강 및 현장 RAG 검색 계약은
+[NEAR_MISS_AI_TAGGING.md](NEAR_MISS_AI_TAGGING.md)에 문서화되어 있습니다.
+
 The embedding server defaults to local-only model loading. For an online model
 download instead of a bind mount, omit the mount and `EMBEDDING_MODEL_PATH`, and
 set `EMBEDDING_LOCAL_FILES_ONLY=false`. Model initialization may take time;
