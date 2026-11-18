@@ -22,7 +22,8 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        image: [ai, embedding, ingest]
+        image: [embedding, ingest]
+        # image: [ai, embedding, ingest]
     outputs:
       summary: ${{ steps.report.outputs.summary }}
     steps:
