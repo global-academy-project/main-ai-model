@@ -23,7 +23,6 @@ TOKEN = "t-ingest"
 PAYLOAD_FIELDS = (
     "source_type", "site_id", "flagged", "title", "locator", "url", "text",
     "severity", "accident_type", "hazard", "work_type", "cas", "ghs", "year",
-    "substances", "sif_potential", "tag_status", "tagging_source", "tagging_version",
     "external_id", "chunk_index", "natural_key", "license", "publisher",
     "content_sha256", "tier", "cate", "disaster_type", "situation",
 )
@@ -50,15 +49,6 @@ def make_record(i: int, **over):
         "work_type": ["HEIGHT"],
         "cas": [],
         "ghs": [],
-        "substances": [],
-        "sif_potential": None,
-        "tag_status": {
-            "severity": "KNOWN", "accident_type": "KNOWN", "hazard": "UNKNOWN",
-            "work_type": "KNOWN", "substance": "UNKNOWN", "ghs": "UNKNOWN",
-            "sif_potential": "UNKNOWN",
-        },
-        "tagging_source": "SIF_STRUCTURED_RULES",
-        "tagging_version": "sif-structured-v1+tag-codes-v5",
         "url": "https://www.data.go.kr/data/15161362/openapi.do",
         "license": "이용허락범위 제한 없음",
         "publisher": "한국산업안전보건공단",
@@ -119,6 +109,7 @@ class FakeSession:
         self.wrong_collection = False
         self.wrong_validation = False
         self.tamper = None  # fn(payload) -> None
+        self.ledger_ids = True  # 새 서버는 payload에 kb_source_id·kb_chunk_id를 채운다. False면 옛 서버(null)
         self.no_write = False
         self.ready_status = 200
         self.paths = {va.SAVE_ROUTE: {}}
@@ -171,13 +162,14 @@ class FakeSession:
         if validation is not None and validation["summary"]["chunks"] != len(records):
             return Resp(422, {"detail": "청크 수가 검증 결과와 일치하지 않습니다"})
         lines = []
-        source_ids: dict[str, int] = {}
         for index, record in enumerate(records):
             pid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"SIF:{record['external_id']}:{record['chunk_index']}"))
             payload = {f: record[f] for f in PAYLOAD_FIELDS if f in record}
-            external_id = record["external_id"]
-            payload["kb_source_id"] = record.get("kb_source_id") or source_ids.setdefault(external_id, 101 + len(source_ids))
-            payload["kb_chunk_id"] = record.get("kb_chunk_id") or 1001 + index
+            payload["kb_source_id"] = record.get("kb_source_id")
+            payload["kb_chunk_id"] = record.get("kb_chunk_id")
+            if self.ledger_ids and payload["kb_chunk_id"] is None:
+                payload["kb_source_id"] = 1000 + index  # 장부 등록 결과 흉내: 파일 안 순서대로, 겹치지 않게
+                payload["kb_chunk_id"] = 5000 + index
             if self.tamper:
                 self.tamper(payload)
             vector = {"dense": [0.1] * DIM}
@@ -266,8 +258,6 @@ def test_check_records_accepts_missing_optional_fields():
     for field in ("year", "severity", "url", "kb_source_id", "kb_chunk_id", "situation"):
         record.pop(field, None)
     record["year"] = None
-    record["severity"] = None
-    record["tag_status"]["severity"] = "UNKNOWN"
     assert len(va.check_records([record])) == 1
 
 
@@ -302,12 +292,9 @@ def test_check_records_empty_and_too_many():
     ("year 문자", lambda r: r.update(year="2019"), "year"),
     ("year bool", lambda r: r.update(year=True), "year"),
     ("severity 숫자", lambda r: r.update(severity=1), "severity"),
-    ("tagging version 없음", lambda r: r.pop("tagging_version"), "tagging_version 필드가 없습니다"),
-    ("ghs 비정규 코드", lambda r: r.update(ghs=["인화성 액체"]), "ghs는 대문자 정규화 코드"),
     ("accident_type None", lambda r: r.update(accident_type=None), "accident_type는 문자열 배열"),
     ("hazard 숫자 원소", lambda r: r.update(hazard=[1]), "hazard는 문자열 배열"),
     ("ghs 없음", lambda r: r.pop("ghs"), "ghs는 문자열 배열"),
-    ("tag status 불일치", lambda r: r["tag_status"].update(ghs="KNOWN"), "tag_status.ghs=KNOWN인데 태그값이 없습니다"),
 ])
 def test_check_records_rejects(name, mutate, match):
     records = make_records(3)
@@ -602,15 +589,29 @@ def test_check_vector_file_type_drift_detected(tmp_path):
     assert any("year" in p for p in problems) and any("flagged" in p for p in problems)
 
 
-def test_check_vector_file_linked_ids_flagged(tmp_path):
+def test_check_vector_file_ledger_ids_filled_is_ok(tmp_path):
+    # 새 서버가 채운 장부 id는 정상이다 (옛 규칙은 'null이 아니면 문제'였다)
+    path, points, _ = made(tmp_path)
+    assert va.check_vector_file(path, points, DIM) == (6, [])
+    assert va.check_vector_file(path, points, DIM, require_ledger_ids=True) == (6, [])
+
+
+def test_check_vector_file_half_linked_ids_flagged(tmp_path):
     path, points, _ = made(tmp_path)
 
-    def link(lines):
-        lines[0]["payload"]["kb_chunk_id"] = None
+    def half(lines):
+        lines[0]["payload"]["kb_chunk_id"] = None  # kb_source_id만 남는다
         return lines
 
-    rewrite(path, link)
-    assert any("kb_source_id와 kb_chunk_id 중 하나만 있음" in p for p in va.check_vector_file(path, points, DIM)[1])
+    rewrite(path, half)
+    assert any("하나만 있음" in p for p in va.check_vector_file(path, points, DIM)[1])
+
+
+def test_check_vector_file_old_server_null_ids_only_flagged_when_required(tmp_path):
+    path, points, _ = made(tmp_path, ledger_ids=False)
+    assert va.check_vector_file(path, points, DIM) == (6, [])
+    _, problems = va.check_vector_file(path, points, DIM, require_ledger_ids=True)
+    assert len(problems) == 6 and all("--require-ledger-ids" in p for p in problems)
 
 
 def test_check_vector_file_malformed(tmp_path):
@@ -655,6 +656,12 @@ def test_parse_args_defaults():
     assert args.chunks == Path("out/accidents/law/05_chunks.jsonl") and args.subdir == "law"
     assert args.vector_dir == Path("out/vectors") and args.embedding_dim == 1024 and args.save_timeout == 3600.0
     assert args.limit is None and not args.dry_run
+    assert args.require_ledger_ids is True  # 기본 켬 (옛 서버 파일만 --no-require-ledger-ids)
+
+
+def test_parse_args_ledger_ids_switch():
+    assert va.parse_args(["--no-require-ledger-ids"]).require_ledger_ids is False
+    assert va.parse_args(["--require-ledger-ids"]).require_ledger_ids is True
 
 
 @pytest.mark.parametrize("argv", [["--embedding-dim", "0"], ["--save-timeout", "0"], ["--limit", "0"], ["--check-only", "--skip-file-check"]])
@@ -695,10 +702,28 @@ def test_run_full(tmp_path):
     assert go(args_for(chunks, vec), s, logs) == 0
     text = "\n".join(logs)
     assert "[완료] 벡터 파일 검사 통과: 6점" in text and "SHA256:" in text and "별도 적재 스크립트" in text
+    assert "있음 6점 / 없음 0점" in text and "doc_id가 비게" not in text
     assert (vec / "sif-2026-11.jsonl").is_file()
     assert s.bodies[0]["validation_file"] == "06_validation.json" and s.bodies[0]["data_type"] == "accidents"
     # Qdrant·장부·다른 경로는 건드리지 않는다
     assert [url for kind, url in s.calls if kind == "POST"] == ["http://127.0.0.1:8001/ingest/vectors/local/file"]
+
+
+def test_run_old_server_without_ledger_ids_stops_by_default(tmp_path):
+    chunks, vec, s, _ = setup(tmp_path)
+    s.ledger_ids = False
+    with pytest.raises(IngestError, match="--require-ledger-ids"):
+        go(args_for(chunks, vec), s)
+    assert s.attempts["save"] == 1  # 서버는 불렀고, 호스트의 벡터 파일 검사에서 멈춘다
+
+
+def test_run_old_server_passes_with_no_require_ledger_ids(tmp_path):
+    chunks, vec, s, _ = setup(tmp_path)
+    s.ledger_ids = False
+    logs: list[str] = []
+    assert go(args_for(chunks, vec, "--no-require-ledger-ids"), s, logs) == 0
+    text = "\n".join(logs)
+    assert "있음 0점 / 없음 6점" in text and "doc_id가 비게" in text
 
 
 def test_run_passes_save_timeout(tmp_path):
