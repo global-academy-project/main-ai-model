@@ -21,15 +21,14 @@ FROM base AS ml-dependencies
 
 COPY requirements.txt requirements.release.txt ./
 COPY --from=ml-wheelhouse /tmp/wheels /tmp/wheels
-# COPY scripts/download_models.py ./scripts/download_models.py
 
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir --no-index \
         --find-links=/tmp/wheels -r requirements.release.txt \
     && /opt/venv/bin/python -m pip check \
     && rm -rf /tmp/wheels \
-    && mkdir -p /models/huggingface/adapters /models/huggingface/yolox \
-    && chown -R 65003:65003 /models/huggingface
+    && mkdir -p /models/adapters /models/yolox /models/huggingface \
+    && chown -R 65003:65003 /models/adapters /models/yolox /models/huggingface
 
 #-------------------------[Multi-stage build AI image]---------------------------------------
 FROM ml-dependencies AS ai
@@ -37,9 +36,10 @@ FROM ml-dependencies AS ai
 USER 65003:65003
 
 COPY app ./app
-COPY adapters/extract/ /models/huggingface/adapters/extract/
-COPY adapters/work_register/ /models/huggingface/adapters/work_register/
-COPY adapters/helmet_nano.onnx /models/huggingface/yolox/helmet_nano.onnx
+COPY adapters/extract/ /models/adapters/extract/
+COPY adapters/work_register/ /app/adapters/work_register/
+COPY adapters/helmet_nano.onnx /models/yolox/helmet_nano.onnx
+COPY adapters/yolox_nano.onnx /models/yolox/yolox_nano.onnx
 
 EXPOSE 60100
 
@@ -62,6 +62,7 @@ CMD ["uvicorn", "app.rag.embedding_api:create_app", "--factory", "--host", "0.0.
 FROM base AS ingest-dependencies
 
 COPY requirements.ingest.txt ./
+
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.ingest.txt \
     && /opt/venv/bin/python -m pip check
@@ -84,10 +85,12 @@ CMD ["uvicorn", "app.ingest_main:app", "--host", "0.0.0.0", "--port", "8001"]
 
 FROM base AS qdrant-init
 
+
 COPY requirements.qdrant-init.txt ./
+
 RUN python -m venv /opt/venv \
-    && /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.qdrant-init.txt \
-    && /opt/venv/bin/python -m pip check
+&& /opt/venv/bin/python -m pip install --no-cache-dir -r requirements.qdrant-init.txt \
+&& /opt/venv/bin/python -m pip check
 
 USER 65003:65003
 
