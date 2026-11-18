@@ -36,9 +36,9 @@ FROM ml-dependencies AS ai
 USER 65003:65003
 
 COPY app ./app
-COPY adapters/extract/ /models/huggingface/adapters/extract/
-COPY adapters/work_register/ /models/huggingface/adapters/work_register/
-COPY adapters/helmet_nano.onnx /models/huggingface/yolox/helmet_nano.onnx
+COPY adapters/extract/ /models/adapters/extract/
+COPY adapters/work_register/ /models/adapters/work_register/
+COPY adapters/helmet_nano.onnx /models/yolox/helmet_nano.onnx
 
 EXPOSE 60100
 
