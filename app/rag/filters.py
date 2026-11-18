@@ -86,12 +86,16 @@ def make_qdrant_conditions(
 
 
 def _read_site_ids(value: Any) -> list[int]:
+    if value is None:
+        return [0]
     if value is not None:
         values = value if isinstance(value, (list, tuple, set)) else [value]
+        if len(values) != 1:
+            raise ValueError("site_id 필터는 하나의 현장만 지원합니다.")
         for site_id in values:
             if isinstance(site_id, bool) or not isinstance(site_id, int) or site_id <= 0:
                 raise ValueError("site_id 필터는 양의 정수여야 합니다.")
-    return [0]
+    return [0, values[0]]
 
 
 def _filter_values(value: Any, name: str) -> list[Any]:
