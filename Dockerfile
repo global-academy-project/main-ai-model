@@ -21,14 +21,15 @@ FROM base AS ml-dependencies
 
 COPY requirements.txt requirements.release.txt ./
 COPY --from=ml-wheelhouse /tmp/wheels /tmp/wheels
+# COPY scripts/download_models.py ./scripts/download_models.py
 
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir --no-index \
         --find-links=/tmp/wheels -r requirements.release.txt \
     && /opt/venv/bin/python -m pip check \
     && rm -rf /tmp/wheels \
-    && mkdir -p /models/huggingface \
-    && chown 65003:65003 /models/huggingface
+    && mkdir -p /models/huggingface/adapters /models/huggingface/yolox \
+    && chown -R 65003:65003 /models/huggingface
 
 #-------------------------[Multi-stage build AI image]---------------------------------------
 FROM ml-dependencies AS ai
@@ -36,9 +37,9 @@ FROM ml-dependencies AS ai
 USER 65003:65003
 
 COPY app ./app
-COPY adapters/extract/ /models/adapters/extract/
-COPY adapters/work_register/ /models/adapters/work_register/
-COPY adapters/helmet_nano.onnx /models/yolox/helmet_nano.onnx
+COPY adapters/extract/ /models/huggingface/adapters/extract/
+COPY adapters/work_register/ /models/huggingface/adapters/work_register/
+COPY adapters/helmet_nano.onnx /models/huggingface/yolox/helmet_nano.onnx
 
 EXPOSE 60100
 
