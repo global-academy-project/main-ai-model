@@ -140,7 +140,7 @@ def test_regex_caught_negation_never_reaches_the_slot_line(rows):
     for r in rows:
         line = r["messages"][1]["content"]
         for item in r["answer"]["excluded"]:
-            if re.search(rf"{re.escape(item)}(은|는)?\s*(안 씀|사용 안 함|필요 없음|제외)", " ".join(r["utterances"])):
+            if re.search(rf"{re.escape(item)}(은|는)?\s*(안 씀|사용 안 함|필요 없음|제외|쓸 일 없|쓸 계획 없|쓸 필요가 없|사용 금지)", " ".join(r["utterances"])):
                 assert item not in line.split("작업 내용:")[1].split("\n")[-1] or "투입 장비" not in line
 
 
@@ -214,7 +214,7 @@ def test_withdrawal_rows_are_checked_against_the_slot_line(guard):
 
 
 def test_no_eval_sentence_or_close_text(rows, valid_rows, guard):
-    eval_texts = {" ".join(c.text.split()) for c in load_cases(DEFAULT_EVAL_SET)}
+    eval_texts = {" ".join(c.text.split()) for path in mpt.DEFAULT_EVAL_SETS for c in load_cases(path)}
     for r in [*rows, *valid_rows]:
         text = "\n".join(r["utterances"])
         assert " ".join(text.split()) not in eval_texts
@@ -362,12 +362,12 @@ def test_check_row_rejects_ood_name_that_contains_a_dictionary_word():
 
 
 def test_check_row_requires_soft_marker_for_slot_only_items():
-    soft = piece("equip", "토치는 쓸 일 없음.", excluded=["토치"], soft=True)
-    hard = piece("equip", "토치는 쓸 일 없음.", excluded=["토치"])
+    soft = piece("equip", "토치는 빼고 진행함.", excluded=["토치"], soft=True)
+    hard = piece("equip", "토치는 빼고 진행함.", excluded=["토치"])
     base = piece(text="펌프실 밸브 교체.")
-    run_check(["펌프실 밸브 교체. 토치는 쓸 일 없음."], summary="펌프실 밸브 교체", pieces=[base, soft])  # 슬롯 줄에 토치가 들어가는 걸 인정
+    run_check(["펌프실 밸브 교체. 토치는 빼고 진행함."], summary="펌프실 밸브 교체", pieces=[base, soft])  # 슬롯 줄에 토치가 들어가는 걸 인정
     with pytest.raises(AssertionError):
-        run_check(["펌프실 밸브 교체. 토치는 쓸 일 없음."], summary="펌프실 밸브 교체", pieces=[base, hard])
+        run_check(["펌프실 밸브 교체. 토치는 빼고 진행함."], summary="펌프실 밸브 교체", pieces=[base, hard])
 
 
 def test_polite_forms_are_now_caught_so_they_are_not_soft_anymore():
@@ -376,6 +376,16 @@ def test_polite_forms_are_now_caught_so_they_are_not_soft_anymore():
     base = piece(text="펌프실 밸브 교체.")
     with pytest.raises(AssertionError):
         run_check(["펌프실 밸브 교체. 토치는 쓰지 않음."], summary="펌프실 밸브 교체", pieces=[base, soft])
+
+
+def test_prohibit_forms_are_now_caught_so_they_are_not_soft_anymore():
+    """11/17(T30) 규칙이 '쓸 일 없'·'사용 금지'를 잡게 됐다: 같은 표현을 soft 로 표시하면 만들 때 멈춘다."""
+    base = piece(text="펌프실 밸브 교체.")
+    for phrase in ("토치 쓸 일 없음.", "토치 쓸 계획 없음.", "토치는 쓸 필요가 없음.", "토치 사용 금지."):
+        soft = piece("equip", phrase, excluded=["토치"], soft=True)
+        with pytest.raises(AssertionError):
+            run_check([f"펌프실 밸브 교체. {phrase}"], summary="펌프실 밸브 교체", pieces=[base, soft])
+        run_check([f"펌프실 밸브 교체. {phrase}"], summary="펌프실 밸브 교체", pieces=[base, piece("equip", phrase, excluded=["토치"])])
 
 
 def test_every_soft_phrase_is_really_missed_by_the_rule_and_every_polite_one_is_caught(guard):
@@ -442,6 +452,119 @@ def test_generate_fails_loudly_when_it_cannot_make_enough_distinct_rows(guard, m
     monkeypatch.setattr(mpt, "ENDINGS", [("함", "")])
     with pytest.raises(RuntimeError, match="재료가 모자랍니다"):
         mpt.generate(60, 1, guard)  # 만들 수 있는 문장이 이보다 훨씬 적게 되도록 재료를 줄여 놓았다 (시도 한도 = 건수 × 60)
+
+
+# ---------------------------------------------------------------- 11/17 (T30): 규칙 v2 · 어려운 평가 문장 · 말 많은 문장
+
+
+def test_default_eval_guard_covers_all_three_sets_and_79_sentences(guard):
+    assert [p.name for p in mpt.DEFAULT_EVAL_SETS] == ["eval_set.jsonl", "eval_set_multiline.jsonl", "eval_set_user_hard.jsonl"]
+    assert len(guard.texts) == 79
+    assert any("굴뚝 청소 작업" in t for t in guard.texts)  # 실제 현장 문장(u02)도 누설 방지 대상이다
+
+
+def test_no_generated_text_is_close_to_the_user_hard_sentences(rows, valid_rows):
+    hard = mpt.EvalGuard.load(mpt.USER_HARD_EVAL_SET)
+    for r in [*rows, *valid_rows]:
+        text = "\n".join(r["utterances"])
+        assert not hard.too_close(text, 0.6), text
+
+
+@pytest.mark.parametrize("name", ["윈치", "헬륨", "스프레이건", "고압세척기", "질산", "초산", "아세트산", "황산", "염산"])
+def test_check_vocab_rejects_hard_set_answers_and_names_now_in_the_dictionary(guard, monkeypatch, name):
+    """어려운 평가 문장의 정답(윈치·헬륨 …)과 사전에 들어온 약품(질산·초산 …)은 '사전 밖' 목록에 둘 수 없다."""
+    monkeypatch.setattr(mpt, "OOD_MATERIALS_VALID", [*mpt.OOD_MATERIALS_VALID, name])
+    monkeypatch.setattr(mpt, "OOD_EQUIPMENT_VALID", [*mpt.OOD_EQUIPMENT_VALID, name])
+    with pytest.raises(AssertionError):
+        mpt.check_vocab(guard)
+
+
+def test_generate_refuses_when_the_v2_rules_are_missing_or_off(guard, monkeypatch):
+    for name in ("EXTENDED_VOCAB", "PROHIBIT_NEGATION"):
+        with monkeypatch.context() as m:
+            m.setattr(mpt.text_rules, name, False)
+            with pytest.raises(RuntimeError, match=name):
+                mpt.generate(5, 1, guard)
+        with monkeypatch.context() as m:
+            m.delattr(mpt.text_rules, name)  # 규칙 코드가 아예 없는 옛 app
+            with pytest.raises(RuntimeError, match="apply_rules_v2"):
+                mpt.generate(5, 1, guard)
+
+
+def test_kind_list_and_weights_agree_and_verbose_is_a_train_only_kind():
+    assert set(mpt._KINDS) == set(mpt.KIND_WEIGHTS)  # noqa: SLF001
+    from scripts.plan_eval import harness
+
+    assert "verbose" not in harness.KINDS  # 평가 유형이 아니다 (평가 표의 유형별 점수에 새 칸이 생기지 않게)
+
+
+def test_new_dictionary_words_are_used_in_training_rows(rows):
+    text = "\n".join("\n".join(r["utterances"]) for r in rows)
+    for name in ("사다리차", "황산", "염산", "질산", "초산"):
+        assert text.count(name) >= 3, name
+
+
+def test_ladder_truck_rows_put_the_truck_on_the_equipment_line_not_the_ladder(rows):
+    seen = 0
+    for r in rows:
+        if "사다리차" in "\n".join(r["utterances"]):
+            line = r["messages"][1]["content"].split("투입 장비:")[-1].split("\n")[0] if "투입 장비:" in r["messages"][1]["content"] else ""
+            assert "사다리차" in line or "사다리차" in r["answer"]["excluded"], r["utterances"]
+            assert "사다리," not in line + "," or "사다리차" in line
+            seen += 1
+    assert seen >= 3
+
+
+def test_prohibit_and_no_need_forms_appear_and_never_reach_the_slot_line(rows):
+    phrases = ("사용 금지", "쓸 일 없", "쓸 계획 없", "쓸 필요가 없")
+    hits = [r for r in rows if any(p in "\n".join(r["utterances"]) for p in phrases)]
+    assert len(hits) >= 10, len(hits)
+    for r in hits:
+        slot_line = r["messages"][1]["content"].split("투입 장비:")[-1] if "투입 장비:" in r["messages"][1]["content"] else ""
+        for item in r["answer"]["excluded"]:
+            if item in mpt.EQUIPMENT:
+                assert item not in slot_line, r["utterances"]
+
+
+def test_verbose_rows_are_wordy_but_the_summary_is_only_the_main_task(rows):
+    verbose = [r for r in rows if r["kind"] == "verbose"]
+    assert len(verbose) >= 60
+    past = re.compile(r"(했음|했습니다|했어요|하였음|마침|끝냄|완료함)\.")
+    assert sum(bool(past.search(r["utterances"][0])) for r in verbose) / len(verbose) >= 0.9  # 작업 문장이 과거형 서술이다
+    for r in verbose:
+        summary = json.loads(r["messages"][2]["content"])["summary"]
+        assert not re.search(r"(했|였|마침|끝냄|완료)", summary), summary  # 끝맺음·동사를 요약에 끌고 오지 않는다 (잘린 동사 방지)
+        assert len(r["utterances"][0]) > len(summary)
+    plain = [r for r in rows if r["kind"] == "plain"]
+    mean = lambda rs: sum(len("\n".join(r["utterances"])) for r in rs) / len(rs)  # noqa: E731
+    assert mean(verbose) > mean(plain)  # 평균적으로 말이 더 많다
+    for r in verbose:  # 인원 이야기는 한 번만 (두 번 나오면 숫자가 서로 어긋난다)
+        assert len(set(re.findall(r"(\d+)명", "\n".join(r["utterances"])))) <= 1, r["utterances"]
+    assert any(json.loads(r["messages"][2]["content"])["equipment"] for r in verbose)
+    assert any(json.loads(r["messages"][2]["content"])["materials"] for r in verbose)
+    assert any(re.search(r", \d+명$", json.loads(r["messages"][2]["content"])["summary"]) for r in verbose)  # 인원이 든 요약 틀도 있다
+
+
+def test_every_new_negation_form_is_actually_produced():
+    mk = mpt.Maker(11)
+    made = " ".join(mk.negate_equipment("드릴").text for _ in range(600))
+    for phrase in ("사용 금지.", "사용 금지 상태라", "쓸 일 없음", "쓸 계획 없음", "쓸 필요가 없음", "쓸 일 없어서", "안 씁니다", "쓰지 않기로 함"):
+        assert phrase in made, phrase
+    soft = " ".join(mk.negate_equipment("드릴", soft=True).text for _ in range(300))
+    for phrase in ("빼고 진행함", "가져오지 않음", "안 가져옴", "반입하지 않음", "반입 안 함"):
+        assert phrase in soft, phrase
+
+
+def test_verbose_fillers_contain_no_dictionary_words_and_no_negation_after_a_word():
+    from app.agent.text_rules import EQUIPMENT, MATERIALS, find_terms
+
+    for text in [*mpt.VERBOSE_FILLERS, *mpt.VERBOSE_REASONS]:
+        assert find_terms(text, EQUIPMENT) == ([], []) and find_terms(text, MATERIALS) == ([], []), text
+    mk = mpt.Maker(5)
+    for _ in range(300):
+        for piece_ in (mk.verbose_equipment("그라인더", "그라인더"), mk.verbose_material("톨루엔")):
+            found = find_terms(piece_.text, {**mpt.EQUIPMENT, **mpt.MATERIALS})
+            assert found[1] == [], piece_.text  # 쓴다고 쓴 말이 부정으로 읽히면 정답과 슬롯 줄이 어긋난다
 
 
 def test_source_hygiene():

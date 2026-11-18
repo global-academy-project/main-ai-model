@@ -19,13 +19,19 @@ from app.agent.evidence_collector.planner import build_planner_input
 from app.agent.evidence_collector.vocab import DEFAULT_CORPORA
 from app.agent.plan_adapter import ADAPTER_SYSTEM_PROMPT, adapter_ready, build_adapter_input
 from app.agent.plan_brief import BRIEF_MAX_TOKENS, BriefPlanner, build_brief_prompt
-from app.llm import llm_transformers
+from app.llm import adapter_paths, llm_transformers
 from app.llm.engines import llm_small_site_guide, llm_work_register
 from app.llm.engines.llm_work_register import ADAPTER_NAME, WorkRegisterClient, build_work_register_client
 from app.llm.llm_fake import FakeLLMClient, text_response
 
 TEXT = "내일 3호기 펌프 베어링 교체. 고착되면 토치로 가열. 옆에 메탄올 드럼 있음. 호이스트는 안 씀."
 GOOD = '{"summary": "3호기 펌프 베어링 교체, 고착 시 토치 가열", "equipment": ["토치"], "materials": ["메탄올"]}'
+
+
+@pytest.fixture(autouse=True)
+def _no_builtin_adapter(monkeypatch):
+    """이 파일의 시험은 PC·서버에 실제 어댑터 폴더(adapters/work_register)가 있든 없든 같아야 한다. 내장 위치 시험은 test_adapter_builtin.py."""
+    monkeypatch.setattr(adapter_paths, "BUILTIN_ADAPTERS", {})
 
 
 def make_work(**kw) -> WorkContext:

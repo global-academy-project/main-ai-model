@@ -150,8 +150,8 @@ def test_off_switch_equals_reference_on_a_large_corpus(monkeypatch):
 
 def _compound_words() -> list[str]:
     """사전 표기나 CONTAINING_NAMES 중 다른 사전 표기를 품은 것 (이것이 글에 없으면 결과가 달라질 수 없다)."""
-    words = [a for v in MATERIALS.values() for a in v] + list(tr.CONTAINING_NAMES)
-    aliases = [a for v in MATERIALS.values() for a in v]
+    words = [a for v in (*MATERIALS.values(), *EQUIPMENT.values()) for a in v] + list(tr.CONTAINING_NAMES)
+    aliases = [a for v in (*MATERIALS.values(), *EQUIPMENT.values()) for a in v]  # 11/17(T30): 장비 사전에도 사다리차(⊃사다리)가 생겼다
     return [w for w in words if any(a != w and a.lower() in w.lower() for a in aliases)]
 
 

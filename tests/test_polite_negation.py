@@ -102,7 +102,7 @@ def _namespace(**replace):
 
 
 def test_switch_off_is_exactly_the_old_pattern():
-    off = _namespace(POLITE_NEGATION=False)
+    off = _namespace(POLITE_NEGATION=False, PROHIBIT_NEGATION=False)  # 금지 부정(T30)은 따로 끈다: 이 시험은 정중형 스위치만 본다
     old = (r"^[ \t]*(?:은|는|도|을|를|이|가)?[ \t]*(?:"
            r"안\s*(?:씀|써|쓴|쓸|쓰|함|해|한)|사용\s*(?:안|하지|않|없)|미사용|없음|없이|필요\s*없|제외" r"|말고(?!도)|대신|아니라|아니고" r")")
     assert off["NEGATION_AFTER"].pattern == old
@@ -116,8 +116,8 @@ def test_switch_off_is_exactly_the_old_pattern():
 
 def test_switch_on_is_the_default_and_only_adds_alternatives():
     assert tr.POLITE_NEGATION is True
-    off = _namespace(POLITE_NEGATION=False)["NEGATION_AFTER"].pattern
-    on = tr.NEGATION_AFTER.pattern
+    off = _namespace(POLITE_NEGATION=False, PROHIBIT_NEGATION=False)["NEGATION_AFTER"].pattern
+    on = _namespace(PROHIBIT_NEGATION=False)["NEGATION_AFTER"].pattern
     assert on.startswith(off[:-1]) and on.endswith(")")  # 끝 괄호만 닫지 않은 채 대안이 이어 붙는다
     extra = on[len(off) - 1 : -1]
     assert extra.startswith("|") and "씁" in extra and "투입하" in extra

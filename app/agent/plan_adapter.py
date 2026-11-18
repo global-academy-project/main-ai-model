@@ -11,14 +11,14 @@
      어댑터 없이 짧은 프롬프트가 나가면 품질이 소리 없이 떨어지기 때문이다.
 
 어댑터를 붙이는 장치는 새로 만들지 않는다. 이미 있는 것을 그대로 쓴다.
-  - 엔진: app/llm/engines/llm_work_register.py 가 LLM_ADAPTERS 에 `ADAPTER_NAME` 이 있을 때만 클라이언트에 이름을 붙인다.
+  - 엔진: app/llm/engines/llm_work_register.py 가 어댑터 파일이 있을 때만 클라이언트에 `ADAPTER_NAME` 을 붙인다.
   - 붙이기·전환·끄기: app/llm/llm_transformers.py 의 `_attach_adapter`·`_use_adapter` (C). 어댑터가 없는 엔진(router·B·E 등)은
     같은 기본 모델을 쓰되 어댑터를 끄고 생성한다.
-  - 설정: app/core/config.py 의 `llm_adapters` (env LLM_ADAPTERS).
+  - 설정: 환경변수 없이 adapters/work_register (app/llm/adapter_paths.py 의 내장 위치). 어댑터 파일이 있는지로만 정하고 LLM_ADAPTERS 는 보지 않는다.
   - "어댑터 폴더가 있으면 짧은 프롬프트" 판정은 app/services/rule_input_extract_service.py 의 `adapter_ready` (C)와 같은 방식이다.
     agent가 services를 부르면 순환 import가 생길 수 있어서 같은 규칙을 여기에 따로 두었다.
 
-끄기: llm_work_register.py 의 `ADAPTER_ENABLED = False`, 또는 .env 의 LLM_ADAPTERS 에서 "plan_brief" 를 뺀다.
+끄기: llm_work_register.py 의 `ADAPTER_ENABLED = False`, 또는 어댑터 폴더(adapters/work_register)를 치운다.
 둘 다 변경 전과 같다 (긴 프롬프트, 어댑터 없음).
 """
 
@@ -53,7 +53,7 @@ def build_adapter_input(work: Any) -> str:
 def adapter_ready(llm: Any) -> bool:
     """이 클라이언트에 계획 어댑터를 실제로 쓸 수 있나. True일 때만 짧은 프롬프트를 쓴다.
 
-    - 클라이언트에 어댑터 이름이 붙어 있고 (엔진이 LLM_ADAPTERS 에 이름이 있을 때만 붙인다),
+    - 클라이언트에 어댑터 이름이 붙어 있고 (엔진이 어댑터 파일이 있을 때만 붙인다),
     - 그 이름의 폴더에 adapter_config.json 이 있고,
     - 이미 붙이기에 실패한 적이 없을 때.
     첫 요청에서 붙이기에 실패하면(예: peft 없음, 기본 모델 불일치) 그 요청은 짧은 프롬프트로 기본 모델에 나간다.
@@ -64,8 +64,9 @@ def adapter_ready(llm: Any) -> bool:
         return False
     try:
         from app.core import get_settings
+        from app.llm.adapter_paths import adapter_folders
 
-        path = (get_settings().llm_adapters or {}).get(name)
+        path = adapter_folders(get_settings()).get(name)  # 내장 위치 adapters/work_register 의 어댑터 파일로만 정한다 (환경변수 안 봄)
     except Exception:  # noqa: BLE001 - 설정을 못 읽으면 어댑터 없이 (긴 프롬프트)
         return False
     if not path or not (Path(path) / "adapter_config.json").is_file():

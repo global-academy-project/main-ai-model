@@ -48,7 +48,8 @@ from app.schemas.agent_work import WorkSlots
 from scripts.plan_eval.harness import DEFAULT_EVAL_SET, load_cases, summary_support
 
 MULTILINE_EVAL_SET = DEFAULT_EVAL_SET.with_name("eval_set_multiline.jsonl")  # 여러 줄 평가 12문장 (이것도 학습에 새면 안 된다)
-DEFAULT_EVAL_SETS = (DEFAULT_EVAL_SET, MULTILINE_EVAL_SET)
+USER_HARD_EVAL_SET = DEFAULT_EVAL_SET.with_name("eval_set_user_hard.jsonl")  # 실제 현장 문장 5 + 어려운 문장 22 (11/17, 이것도 학습에 새면 안 된다)
+DEFAULT_EVAL_SETS = (DEFAULT_EVAL_SET, MULTILINE_EVAL_SET, USER_HARD_EVAL_SET)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / "data" / "plan-train"
@@ -63,16 +64,19 @@ _SKIP_ALIASES = frozenset({"렌탈", "H2S", "toluene", "methanol", "ethanol", "a
 DICT_EQUIPMENT: dict[str, list[str]] = {c: [a for a in al if a not in _SKIP_ALIASES] for c, al in EQUIPMENT.items()}
 DICT_MATERIALS: dict[str, list[str]] = {c: [a for a in al if a not in _SKIP_ALIASES] for c, al in MATERIALS.items()}
 
-# 사전 밖 장비. 평가 정답(핸드브레이커·고압세척기·와이어브러시·열풍기·샌딩기)과 겹치지 않고, 사전 단어(드릴·렌치 …)를 품지 않는다.
+# 사전 밖 장비. 평가 정답(핸드브레이커·고압세척기·와이어브러시·열풍기·샌딩기·스프레이건·윈치 …)과 겹치지 않고, 사전 단어(드릴·렌치 …)를 품지 않는다.
+# 11/17: 윈치는 어려운 평가 문장(h15)의 정답이라 검증용에서 뺐다.
 OOD_EQUIPMENT_TRAIN = ["전동드라이버", "토크렌치", "전동톱", "연마기", "덤프트럭", "굴착기", "진공흡입차", "스팀세척기", "리프트", "착암기"]
-OOD_EQUIPMENT_VALID = ["윈치", "에어건", "컷팅기"]
-# 사전 밖 물질. 평가 정답(염산·황산·가성소다·아르곤·부탄·포름알데히드·에틸렌·이산화탄소·과산화수소)과 겹치지 않고
+OOD_EQUIPMENT_VALID = ["분쇄기", "에어건", "컷팅기"]
+# 사전 밖 물질. 평가 정답(가성소다·아르곤·부탄·포름알데히드·에틸렌·이산화탄소·과산화수소·헬륨 …)과 겹치지 않고
 # 사전 단어(수소·메탄·헥산·에틸렌 …)를 품지 않는다 (슬롯 줄이 정답과 어긋나지 않게).
+# 11/17: 질산·초산(·아세트산)은 사전에 들어가 사전 밖이 아니다 (text_rules.EXTENDED_VOCAB). 헬륨은 어려운 평가 문장(h19)의 정답이라 검증용에서 뺐다.
 OOD_MATERIALS_TRAIN = [
-    "질산", "인산", "불산", "초산", "수산화칼륨", "차아염소산나트륨", "염화메틸렌", "메틸에틸케톤", "스티렌", "이소시아네이트",
+    "인산", "불산", "수산화칼륨", "차아염소산나트륨", "염화메틸렌", "메틸에틸케톤", "스티렌", "이소시아네이트",
     "프로필렌", "일산화탄소", "이산화황", "클로로포름", "아크릴로니트릴", "이산화질소", "과망간산칼륨", "염화칼슘",
+    "페놀", "글리세린",
 ]
-OOD_MATERIALS_VALID = ["아세트산", "헬륨", "락스", "요소수", "사염화탄소"]
+OOD_MATERIALS_VALID = ["개미산", "네온", "락스", "요소수", "사염화탄소"]
 
 # 장비마다 하는 일 (명사). '그라인더로 표면 연마'처럼 쓴다.
 EQUIP_ACTS: dict[str, list[str]] = {
@@ -86,6 +90,7 @@ EQUIP_ACTS: dict[str, list[str]] = {
     "지게차": ["자재 운반", "팔레트 운반", "드럼 운반", "배관 운반"],
     "고소작업대": ["상부 점검", "조명 교체", "지지대 확인", "상부 보수"],
     "사다리": ["상부 점검", "볼트 조임", "점검"],
+    "사다리차": ["상부 점검", "외벽 보수", "지붕 자재 이동"],
     "비계": ["외벽 도장", "상부 보수", "배관 점검"],
     "송풍기": ["환기", "내부 환기", "공기 순환"],
     "가스측정기": ["농도 확인", "내부 공기 측정", "가스 측정"],
@@ -105,6 +110,7 @@ EQUIP_ACTS: dict[str, list[str]] = {
     "윈치": ["케이블 인입", "자재 견인"],
     "에어건": ["먼지 제거", "표면 청소"],
     "컷팅기": ["콘크리트 절단", "바닥 절단"],
+    "분쇄기": ["폐자재 분쇄", "잔재 분쇄"],
 }
 
 LOCATIONS = [
@@ -133,8 +139,18 @@ EXTRAS = ["{n}명 투입", "{n}명이 진행", "작업 인원 {n}명", "{n}명 �
 # 작업 이름 뒤에 붙는 끝맺음 (붙여 쓰는 것, 띄어 쓰는 것)
 ENDINGS = [("함", ""), ("합니다", ""), ("할 예정", ""), ("한다", ""), ("해요", ""), ("할 거야", ""), ("진행", " "), ("예정입니다", " "), ("실시", " ")]
 
-_KINDS = ("plain", "negation", "conditional", "out_of_dict", "multi", "none", "distractor")
-KIND_WEIGHTS = {"plain": 22, "negation": 17, "conditional": 13, "out_of_dict": 20, "multi": 10, "none": 8, "distractor": 10}
+# verbose: 말이 많은 현장 문장 (과거형 서술, 이유·잡담이 섞임). 학습이 '장소+부품+작업명' 한 틀에만 맞춰져 틀 밖 문장에서 요약이 잘리거나 어색해지던 것을 줄인다 (T30)
+_KINDS = ("plain", "negation", "conditional", "out_of_dict", "multi", "none", "distractor", "verbose")
+KIND_WEIGHTS = {"plain": 20, "negation": 16, "conditional": 12, "out_of_dict": 18, "multi": 9, "none": 8, "distractor": 9, "verbose": 14}
+# 말이 많은 문장 재료 (verbose). 사전 단어가 들어가지 않고, 사전 단어 바로 뒤에 부정처럼 읽히는 말이 오지 않게 쓴다.
+VERBOSE_ENDINGS = ["했음", "했습니다", "했어요", "하였음"]  # 작업 이름에 바로 붙인다
+VERBOSE_OBJECT_ENDINGS = ["마침", "끝냄", "완료함"]  # 작업 이름 + 을/를 + 이 말 ('교체를 마침')
+VERBOSE_PLACE_SUFFIX = ["", "", " 앞", " 쪽", " 내부"]
+VERBOSE_REASONS = ["볼트가 안 풀려서", "손으로는 안 돼서", "시간이 모자라서", "작업량이 많아서", "바닥이 단단해서", "생각보다 오래 걸려서"]
+VERBOSE_FILLERS = [
+    "ㅎㅎ", "특이사항 없었음", "날씨는 맑았음", "점심 먹고 시작했음", "내일 이어서 할 예정", "수고하셨습니다", "시간이 좀 걸렸음", "마무리 정리까지 끝냈음",
+    "중간에 잠깐 쉬었음", "다들 고생 많았음", "ㅋㅋ", "오전부터 바빴음",
+]
 MULTI_LINE_RATE = 0.35  # 여러 발화(되묻기 답)로 나누는 비율
 
 # ---------------------------------------------------------------- 말 만들기
@@ -284,11 +300,11 @@ class Maker:
         return Piece("mat", text, answer, materials=[m])
 
     def negate_equipment(self, surface: str, *, soft: bool = False) -> Piece:
-        if soft:  # 사전의 부정 규칙(text_rules.NEGATION_AFTER)이 지금도 못 잡는 표현 (슬롯 줄에 들어간다). 11/17 정중형('안 씁니다' 등)을 규칙에 더한 뒤 남은 말들 (T28 3번)
+        if soft:  # 사전의 부정 규칙(text_rules.NEGATION_AFTER)이 지금도 못 잡는 표현 (슬롯 줄에 들어간다). 11/17 정중형·'쓸 일 없'·'사용 금지'를 규칙에 더한 뒤 남은 말들 (T28, T30)
             text, answer = self.r.choice([
-                (f"{josa(surface, '은/는')} 빼고 진행함.", f"{surface} 빼고 갑니다"), (f"{surface} 쓸 일 없음.", f"{surface} 쓸 일 없어요"),
-                (f"{surface} 쓸 계획 없음.", f"{surface} 쓸 계획 없습니다"), (f"{josa(surface, '은/는')} 가져오지 않음.", f"{surface} 가져오지 않아요"),
-                (f"{josa(surface, '은/는')} 안 가져옴.", f"{surface} 안 가져왔어요"), (f"{josa(surface, '은/는')} 쓸 필요가 없음.", f"{surface} 쓸 필요가 없어요"),
+                (f"{josa(surface, '은/는')} 빼고 진행함.", f"{surface} 빼고 갑니다"), (f"{josa(surface, '은/는')} 가져오지 않음.", f"{surface} 가져오지 않아요"),
+                (f"{josa(surface, '은/는')} 안 가져옴.", f"{surface} 안 가져왔어요"), (f"{surface} 반입하지 않음.", f"{surface} 반입하지 않습니다"),
+                (f"{surface} 반입 안 함.", f"{surface} 반입 안 해요"),
             ])
             return Piece("equip", text, answer, excluded=[surface], soft=True)
         forms = [
@@ -300,6 +316,10 @@ class Maker:
             (f"{josa(surface, '은/는')} 안 씁니다.", f"{surface} 안 씁니다"), (f"{josa(surface, '은/는')} 안 썼음.", f"{surface} 안 썼어요"),
             (f"{josa(surface, '은/는')} 쓰지 않음.", f"{surface} 쓰지 않아요"), (f"{josa(surface, '은/는')} 필요하지 않음.", f"{surface} 필요하지 않아요"),
             (f"{josa(surface, '은/는')} 투입하지 않음.", f"{surface} 투입하지 않습니다"), (f"{josa(surface, '은/는')} 쓰지 않기로 함.", f"{surface} 쓰지 않기로 했어요"),
+            # '쓸 일 없'·'사용 금지' (11/17 규칙에 더함, T30)
+            (f"{surface} 쓸 일 없음.", f"{surface} 쓸 일 없어요"), (f"{surface} 쓸 계획 없음.", f"{surface} 쓸 계획 없습니다"),
+            (f"{josa(surface, '은/는')} 쓸 필요가 없음.", f"{surface} 쓸 필요가 없어요"), (f"{surface} 쓸 일 없어서 다른 방법으로 진행.", f"{surface} 쓸 일 없어서 다른 방법으로 해요"),
+            (f"{surface} 사용 금지.", f"{surface} 사용 금지예요"), (f"{surface} 사용 금지 상태라 수공구로 진행.", f"{surface} 사용 금지라서 수공구로 해요"),
         ]
         text, answer = self.r.choice(forms)
         return Piece("equip", text, answer, excluded=[surface])
@@ -345,6 +365,33 @@ class Maker:
         if material:
             pieces_text += " " + self.mention_material(material).text
         return Piece("equip", pieces_text, equipment=[surface], materials=[material] if material else [], summary=summary)
+
+    # ---- 말이 많은 문장 (verbose)
+    def verbose_task(self) -> tuple[Piece, str]:
+        """과거형 서술 작업 조각. 요약은 '장소 작업'만 (끝맺음·장소 뒷말은 뺀다)."""
+        loc, suffix = self.location(), self.r.choice(VERBOSE_PLACE_SUFFIX)
+        forms = [t for t in TASK_FORMS if not t.endswith("조임")]  # '조임했음'처럼 어색한 것은 뺀다
+        core = self.r.choice(forms).format(p=self.part()) if self.r.random() < 0.6 else self.r.choice(TASK_PLAIN)
+        tail = self.r.choice(VERBOSE_ENDINGS) if self.r.random() < 0.6 else ("을" if _batchim(core) else "를") + " " + self.r.choice(VERBOSE_OBJECT_ENDINGS)
+        text = f"{loc}{suffix}에서 {core}{tail}."
+        head = self.r.choice(HEADS) + " " if self.r.random() < 0.5 else ""
+        return Piece("task", head + text), f"{loc} {core}"
+
+    def verbose_equipment(self, surface: str, key: str) -> Piece:
+        act, eo, why = self.act(key), josa(surface, "으로/로"), self.r.choice(VERBOSE_REASONS)
+        text = self.r.choice([
+            f"{why} {surface} 가져와서 {act} 진행했고.", f"{why} {eo} {act}했음.", f"{surface} 가져와서 {act}했고.", f"{surface} 사용해서 {act} 마침.",
+            f"{eo} {act}하고 정리함.", f"{why} {surface} 올려서 {act}했음.",
+        ])
+        return Piece("equip", text, equipment=[surface])
+
+    def verbose_material(self, m: str) -> Piece:
+        eo = josa(m, "으로/로")
+        text = self.r.choice([
+            f"옆에서 {eo} 닦음.", f"{m} 조금 흘려서 바로 닦았음.", f"{eo} 세척했고.", f"{m} 희석해서 사용했음.", f"{m} 말통 옮기다가 잠깐 쉬었음.",
+            f"{m} 냄새가 약간 났음.",
+        ])
+        return Piece("mat", text, materials=[m])
 
     def misc(self) -> Piece:
         return Piece("misc", self.r.choice(EXTRAS).format(n=self.n(2, 5)))
@@ -472,6 +519,27 @@ def build_sample(mk: Maker, kind: str) -> Sample:
                 text = ", ".join(f"{s} {mk.n(2, 4)}대" for s in names_e[:2]) + " 투입."
                 names_e = names_e[:2]
             pieces.append(Piece("equip", text, f"장비는 {', '.join(names_e)}", equipment=list(names_e)))
+    elif kind == "verbose":
+        task, base = mk.verbose_task()
+        pieces = [task]
+        for _ in range(r.randint(0, 2)):
+            e, k = mk.equipment(ood=False if r.random() < 0.6 else None)
+            if not used(pieces, e):
+                pieces.append(mk.verbose_equipment(e, k))
+        for _ in range(r.randint(0, 2)):
+            m = mk.material(ood=False if r.random() < 0.6 else None)
+            if not used(pieces, m):
+                pieces.append(mk.verbose_material(m))
+        if r.random() < 0.4:  # 인원 이야기. 요약에 숫자를 넣는 틀도 한 번씩 보인다 (숫자는 원문에 있는 것만)
+            count = mk.n(2, 6)
+            pieces.append(Piece("misc", f"작업자 {count}명 투입했고 무사히 끝남."))
+            if r.random() < 0.4:
+                base = f"{base}, {count}명"
+        for _ in range(r.randint(0, 2)):
+            pieces.append(Piece("misc", r.choice(VERBOSE_FILLERS)))
+        rest = pieces[1:]
+        r.shuffle(rest)  # 잡담·장비·물질 문장의 순서는 섞는다 (작업 문장이 늘 맨 앞)
+        pieces = [pieces[0], *rest]
     elif kind == "none":
         text = r.choice(NONE_TASKS)
         place = mk.location() + " " if r.random() < 0.5 else ""
@@ -497,7 +565,7 @@ def build_sample(mk: Maker, kind: str) -> Sample:
             base = body
     else:
         raise ValueError(kind)
-    if kind != "distractor" and r.random() < 0.3:
+    if kind not in ("distractor", "verbose") and r.random() < 0.3:
         pieces.append(mk.misc())
     return Sample(kind, pieces, _task_summary(base, extras) if kind != "none" else base)
 
@@ -686,8 +754,17 @@ def require_polite_negation() -> None:
                            "(Colab 은 app.zip 을 PC 의 현재 app/ 로 다시 묶어 올립니다).")
 
 
+def require_rules_v2() -> None:
+    """사전 확장(사다리차·황산 …)과 '쓸 일 없'·'사용 금지' 부정이 켜져 있어야 이 생성기의 정답이 서버와 맞는다 (11/17 text_rules, T30)."""
+    missing = [name for name in ("EXTENDED_VOCAB", "PROHIBIT_NEGATION") if not getattr(text_rules, name, False)]
+    if missing:
+        raise RuntimeError(f"app/agent/text_rules.py 에 {', '.join(missing)} = True 가 없습니다. apply_rules_v2.py 를 먼저 적용하세요 "
+                           "(Colab 은 app.zip 을 PC 의 현재 app/ 로 다시 묶어 올립니다).")
+
+
 def generate(n: int, seed: int, guard: EvalGuard, *, holdout: bool = False, seen: set[str] | None = None, threshold: float = 0.6) -> list[dict]:
     require_polite_negation()
+    require_rules_v2()
     mk = Maker(seed, holdout=holdout)
     kinds = list(KIND_WEIGHTS)
     weights = [KIND_WEIGHTS[k] for k in kinds]
@@ -721,7 +798,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--valid", type=int, default=240)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--eval-set", nargs="+", default=[str(p) for p in DEFAULT_EVAL_SETS],
-                        help="겹치면 안 되는 평가 문장 파일들 (기본 eval_set.jsonl 과 eval_set_multiline.jsonl)")
+                        help="겹치면 안 되는 평가 문장 파일들 (기본 eval_set.jsonl · eval_set_multiline.jsonl · eval_set_user_hard.jsonl)")
     parser.add_argument("--threshold", type=float, default=0.6, help="평가 문장과 3글자 조각 겹침이 이 값 이상이면 버린다")
     parser.add_argument("--sample", type=int, default=0, help="유형별 N건씩 화면에만 보여 주고 끝 (저장 안 함)")
     args = parser.parse_args(argv)
