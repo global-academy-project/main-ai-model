@@ -140,8 +140,11 @@ class IngestRequest(BaseModel):
         if payload["site_id"] <= 0 or payload["flagged"] is not False:
             raise ValueError("NEAR_MISS는 양수 site_id와 flagged=false가 필요합니다.")
 
-        if not isinstance(payload["severity"], str) or not payload["severity"].strip():
-            raise ValueError("NEAR_MISS severity는 비어 있지 않은 문자열이어야 합니다.")
+        if (
+            not isinstance(payload["severity"], list)
+            or any(not isinstance(value, str) or not value.strip() for value in payload["severity"])
+        ):
+            raise ValueError("NEAR_MISS severity는 문자열 배열이어야 합니다.")
         for field in ("accident_type", "hazard", "work_type", "cas", "ghs"):
             values = payload[field]
             if (
