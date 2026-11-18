@@ -178,6 +178,18 @@ def clean_summary(value: object, text: str) -> str | None:
     return summary
 
 
+# 요약에 원문에 없는 단어가 있으면('랙 상부' → '랜치 상부') 쓰지 않고 규칙 요약(원문 앞부분)으로 대신한다 (T30). False면 변경 전과 같다.
+SUMMARY_WORD_GUARD = True
+_SUMMARY_TOKEN = re.compile(r"[0-9A-Za-z가-힣]+")
+
+
+def unsupported_summary_words(summary: str, text: str) -> list[str]:
+    """두 글자 이상 단어마다 '끝 한 글자를 뗀 앞부분'이 원문에 없으면 근거 없는 단어다 (교체함 → 교체).
+    scripts/plan_eval/harness.summary_support 와 같은 기준이다 (평가표의 '근거 없는 단어가 든 요약'이 이 가드가 바꿀 요약이다)."""
+    haystack = _compact(text).lower()
+    return [t for t in _SUMMARY_TOKEN.findall(summary) if len(t) >= 2 and t.lower()[: max(2, len(t) - 1)] not in haystack]
+
+
 # ── 계획 (LLM 후보 + 코드 검증) ──
 
 
@@ -206,8 +218,13 @@ class BriefPlanner(Planner):
         if eq_dropped or mat_dropped:
             logger.info("계획 후보 중 원문에 없거나 부정된 것을 버렸습니다: 공구 %d건, 물질 %d건", eq_dropped, mat_dropped)
         summary = clean_summary(raw.get("summary"), work.text)
+        if summary is not None and SUMMARY_WORD_GUARD:
+            unsupported = unsupported_summary_words(summary, work.text)
+            if unsupported:
+                logger.info("계획 요약에 원문에 없는 단어(%s)가 있어 규칙 요약으로 대신합니다.", ", ".join(unsupported[:3]))
+                summary = None
         if summary is None:
-            logger.info("계획 요약을 쓸 수 없어(비었거나 원문에 없는 숫자) 규칙 요약으로 대신합니다.")
+            logger.info("계획 요약을 쓸 수 없어(비었거나 원문에 없는 숫자·단어) 규칙 요약으로 대신합니다.")
         return Plan(
             summary=summary or one_line(work.text, BRIEF_SUMMARY_CHARS * 2),
             work_types=self._input_work_types(work),  # 작업 유형은 classify_work 결과만 따른다
