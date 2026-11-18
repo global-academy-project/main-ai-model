@@ -84,7 +84,7 @@ def _near_miss_request_body():
                     "source_type": "NEAR_MISS",
                     "site_id": 3,
                     "flagged": False,
-                    "severity": "NEAR_MISS",
+                    "severity": ["NEAR_MISS"],
                     "accident_type": ["FALL"],
                     "hazard": ["HUMAN"],
                     "work_type": ["HEIGHT"],

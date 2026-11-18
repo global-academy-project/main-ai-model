@@ -41,9 +41,9 @@ def test_rag_defaults_do_not_require_application_settings():
     )
 
 
-def test_search_site_filter_excludes_current_site():
+def test_search_site_filter_includes_public_and_current_site():
     _, _, site_ids = read_filters({"site_id": 17})
-    assert site_ids == [0]
+    assert site_ids == [0, 17]
 
 
 def test_sif_potential_filter_builds_boolean_qdrant_condition():
