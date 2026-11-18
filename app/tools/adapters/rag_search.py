@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_K = 5
 MAX_K = 50
-_RESERVED_KEYS = frozenset({"query", "k", "min_score"})
+_RESERVED_KEYS = frozenset({"query", "k", "min_score", "site_id"})
 _HIT_FIELDS = ("id", "doc_id", "source", "text", "score")
 
 SearchBackend = Callable[..., Sequence[Any]]
