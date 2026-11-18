@@ -26,4 +26,4 @@ docker-compose.yml
 
 #### Training data and LoRA adapters (not in the image; mount as a volume at runtime)
 data/
-adapters/
+# adapters/
