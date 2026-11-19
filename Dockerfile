@@ -37,7 +37,7 @@ USER 65003:65003
 
 COPY app ./app
 COPY adapters/extract/ /models/adapters/extract/
-COPY adapters/work_register/ /app/adapters/work_register/
+COPY adapters/work_register/ /models/adapters/work_register/
 COPY adapters/helmet_nano.onnx /models/yolox/helmet_nano.onnx
 COPY adapters/yolox_nano.onnx /models/yolox/yolox_nano.onnx
 
