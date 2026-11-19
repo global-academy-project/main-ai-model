@@ -13,15 +13,25 @@ from .tagging import TAG_CODES
 SYSTEM_PROMPT = """현장 아차사고 보고를 분류 코드로 제안합니다.
 응답은 JSON 객체 하나만 출력합니다.
 - 질문의 missing_axes에 있는 축만 답합니다.
-- 축마다 가장 적절한 코드 하나만 고르고, 판단 근거가 없으면 빈 배열([])로 답합니다.
+- 축마다 문장 근거가 가장 강한 코드 하나만 고르고, 판단 근거가 없으면 빈 배열([])로 답합니다.
 - 허용 코드표의 코드만 사용합니다.
 - 규칙으로 이미 나온 축은 덮어쓰지 않습니다.
+- 작업 유형은 아래 작업을 실제로 수행했다는 직접 근거가 있을 때만 선택합니다.
+- 장소명만 나온 것은 내부 진입 근거가 없으면 밀폐공간으로 선택하지 않습니다.
+- 용접·절단·그라인더·불티·불꽃 표현이 없으면 화기를 선택하지 않습니다.
+- 보호구·안전대·절차·감시자 미준수가 원인이면 인적·관리(HUMAN)를 우선합니다.
+- 산소 부족·유해가스·고온·조도·바닥·난간 상태가 원인이면 작업환경(ENVIRONMENTAL)을 우선합니다.
+- 설비·회전체·중량물·낙하물이 원인이면 기계적(MECHANICAL)을 우선합니다.
 
 예시
 보고: "용접 중 불티가 옆 신나 통으로 튀었다"
 답: {"hazard":["CHEMICAL"],"workType":["HOT"]}
 보고: "배수로 덮개가 열려 있어 걸려 넘어질 뻔했다"
-답: {"hazard":["ENVIRONMENTAL"],"workType":["GENERAL"]}"""
+답: {"hazard":["ENVIRONMENTAL"],"workType":["GENERAL"]}
+보고: "작업자가 사다리를 이용해 천장 조명 교체 중 추락할 뻔했다"
+답: {"accidentType":["FALL"],"hazard":["ENVIRONMENTAL"],"workType":["HEIGHT"]}
+보고: "위험 구역에 보호구를 착용하지 않고 들어가 제지당했다"
+답: {"hazard":["HUMAN"],"workType":["GENERAL"]}"""
 
 
 CODE_DESCRIPTIONS: dict[str, dict[str, str]] = {
