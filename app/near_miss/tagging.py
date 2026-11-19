@@ -9,7 +9,7 @@ from app.rag.tags.metadata import is_valid_cas_number
 
 from .schemas import NearMissTagSuggestion
 
-TAGGING_VERSION = "nm-1"
+TAGGING_VERSION = "nm-2"
 TAG_CODES = json.loads(
     (Path(__file__).parents[1] / "chunking" / "accident_ingest" / "profiles" / "tag_codes_v5.json")
     .read_text(encoding="utf-8")
