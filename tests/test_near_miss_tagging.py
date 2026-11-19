@@ -51,7 +51,7 @@ def test_near_miss_rule_tagging_uses_scenario_c_shape():
     response = tag_near_miss(request, FakeLLMClient())
 
     assert response.tagging_source == "near_miss_rules"
-    assert response.tagging_version == "nm-2"
+    assert response.tagging_version == "nm-3"
     assert {"axis": "SEVERITY", "value": "NEAR_MISS"} in [
         {"axis": tag.axis, "value": tag.value} for tag in response.tags
     ]
@@ -84,7 +84,7 @@ def test_near_miss_llm_error_keeps_rule_tags():
     response = tag_near_miss(request, FailingNearMissLLM())
 
     assert response.tagging_source == "near_miss_rules"
-    assert response.tagging_version == "nm-2"
+    assert response.tagging_version == "nm-3"
     assert response.model is None
     assert {"axis": "SEVERITY", "value": "NEAR_MISS"} in [
         {"axis": tag.axis, "value": tag.value} for tag in response.tags
@@ -95,3 +95,39 @@ def test_near_miss_llm_error_keeps_rule_tags():
     assert {"axis": "WORK_TYPE", "value": "HEIGHT"} in [
         {"axis": tag.axis, "value": tag.value} for tag in response.tags
     ]
+
+
+def test_near_miss_auxiliary_accident_rules_cover_field_expressions():
+    request = NearMissTagRequest(
+        runId=51,
+        siteId=3,
+        nearMissId=12,
+        title="천장 조명 작업 중 추락 사고",
+        description="작업자가 사다리를 이용해 천장 조명 교체 중 발을 헛디뎌 추락할 뻔했다",
+        immediateAction="작업 중지와 안전대 체결",
+        workType=None,
+    )
+
+    response = tag_near_miss(request, FakeLLMClient())
+    values = {(tag.axis, tag.value) for tag in response.tags}
+
+    assert ("ACCIDENT_TYPE", "FALL") in values
+    assert ("HAZARD", "HUMAN") in values
+    assert ("WORK_TYPE", "HEIGHT") in values
+
+
+def test_near_miss_reactionary_place_name_does_not_force_confined():
+    request = NearMissTagRequest(
+        runId=51,
+        siteId=3,
+        nearMissId=36,
+        title="탱크 주변 점검",
+        description="탱크 외부에서 누출 상태를 점검했지만 내부에는 진입하지 않았다",
+        immediateAction="누출 차단과 주변 통제",
+        workType=None,
+    )
+
+    response = tag_near_miss(request, FakeLLMClient())
+    work_types = {tag.value for tag in response.tags if tag.axis == "WORK_TYPE"}
+
+    assert "CONFINED" not in work_types
