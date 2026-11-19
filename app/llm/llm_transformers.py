@@ -9,7 +9,7 @@
 - 오류·로그의 엔진 이름은 호출한 클라이언트의 `name`을 쓴다.
 - LoRA 어댑터 (11/10 추가, C): 클라이언트에 `adapter` 이름이 있으면 같은 기본 모델 위에 그 어댑터를 얹어 생성한다.
   어댑터 폴더는 `Settings.llm_adapters`(env LLM_ADAPTERS, 이름 → 로컬 폴더)에서 찾고, 처음 쓸 때 한 번만 붙인다 (머지하지 않음).
-  내장 위치는 `adapter_paths.BUILTIN_ADAPTERS`(11/18, 계획 단계 plan_brief, adapters/work_register): 폴더의 어댑터 파일로만 정하고 LLM_ADAPTERS 는 보지 않는다.
+  계획 단계 work_register 는 `adapter_paths`(11/19): LLM_ADAPTERS 의 "work_register" 폴더, 없으면 기본 위치 adapters/work_register 에 어댑터 파일이 있을 때만 쓴다.
   어댑터를 붙인 모델에서 어댑터가 없는 엔진은 어댑터를 끄고 생성한다 (다른 엔진의 어댑터가 섞이지 않게).
   폴더가 없거나 붙이지 못하면 경고만 남기고 기본 모델로 생성한다. 어댑터를 쓰는 엔진이 없으면 지금까지와 똑같이 동작한다.
 - 생성 잠금 (11/15, B): 모델(읽어 둔 객체)마다 하나다. 같은 모델을 쓰는 엔진끼리는 한 번에 하나씩(어댑터 전환 보호),
@@ -120,7 +120,7 @@ def _generate_lock_for(loaded: _LoadedModel) -> threading.Lock:
 
 
 def _adapter_paths() -> dict[str, str]:
-    """어댑터 이름 → 로컬 폴더 (Settings.llm_adapters(env LLM_ADAPTERS) + 내장 위치 adapter_paths, 내장 이름은 폴더로만). 설정을 읽지 못하면 비어 있음."""
+    """어댑터 이름 → 로컬 폴더 (Settings.llm_adapters(env LLM_ADAPTERS) + 기본 위치 adapter_paths, work_register 는 어댑터 파일이 있을 때만). 설정을 읽지 못하면 비어 있음."""
     try:
         from app.core import get_settings
 

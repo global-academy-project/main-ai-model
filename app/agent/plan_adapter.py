@@ -14,11 +14,11 @@
   - 엔진: app/llm/engines/llm_work_register.py 가 어댑터 파일이 있을 때만 클라이언트에 `ADAPTER_NAME` 을 붙인다.
   - 붙이기·전환·끄기: app/llm/llm_transformers.py 의 `_attach_adapter`·`_use_adapter` (C). 어댑터가 없는 엔진(router·B·E 등)은
     같은 기본 모델을 쓰되 어댑터를 끄고 생성한다.
-  - 설정: 환경변수 없이 adapters/work_register (app/llm/adapter_paths.py 의 내장 위치). 어댑터 파일이 있는지로만 정하고 LLM_ADAPTERS 는 보지 않는다.
+  - 설정: 환경변수 LLM_ADAPTERS 의 "work_register" (Settings.llm_adapters), 없으면 adapters/work_register (app/llm/adapter_paths.py). 그 폴더에 어댑터 파일이 있는지로 정한다.
   - "어댑터 폴더가 있으면 짧은 프롬프트" 판정은 app/services/rule_input_extract_service.py 의 `adapter_ready` (C)와 같은 방식이다.
     agent가 services를 부르면 순환 import가 생길 수 있어서 같은 규칙을 여기에 따로 두었다.
 
-끄기: llm_work_register.py 의 `ADAPTER_ENABLED = False`, 또는 어댑터 폴더(adapters/work_register)를 치운다.
+끄기: llm_work_register.py 의 `ADAPTER_ENABLED = False`, 또는 어댑터 파일을 치운다 (LLM_ADAPTERS 의 폴더 또는 adapters/work_register).
 둘 다 변경 전과 같다 (긴 프롬프트, 어댑터 없음).
 """
 
@@ -66,7 +66,7 @@ def adapter_ready(llm: Any) -> bool:
         from app.core import get_settings
         from app.llm.adapter_paths import adapter_folders
 
-        path = adapter_folders(get_settings()).get(name)  # 내장 위치 adapters/work_register 의 어댑터 파일로만 정한다 (환경변수 안 봄)
+        path = adapter_folders(get_settings()).get(name)  # LLM_ADAPTERS 의 work_register (없으면 adapters/work_register)의 어댑터 파일로 정한다
     except Exception:  # noqa: BLE001 - 설정을 못 읽으면 어댑터 없이 (긴 프롬프트)
         return False
     if not path or not (Path(path) / "adapter_config.json").is_file():

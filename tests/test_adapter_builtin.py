@@ -1,6 +1,6 @@
-"""어댑터 내장 위치 (app/llm/adapter_paths.py, 11/18): 환경변수 없이 adapters/work_register 에 어댑터 파일이 있는지로만 정한다.
+"""어댑터 폴더 (app/llm/adapter_paths.py, 11/19): LLM_ADAPTERS 의 "plan_brief" 폴더, 없으면 기본 위치 adapters/work_register.
 
-파일이 있으면 어댑터와 짧은 프롬프트, 없으면 어댑터 없이 긴 프롬프트 (내장 위치를 만들기 전과 같다). 이 이름은 LLM_ADAPTERS 를 보지 않는다.
+그 폴더에 어댑터 파일(설정 + 가중치)이 있으면 어댑터와 짧은 프롬프트, 없으면 어댑터 없이 긴 프롬프트 (어댑터를 만들기 전과 같다).
 모델은 부르지 않는다 (가짜 클라이언트·가짜 peft). 실제 어댑터 폴더가 이 PC 에 있든 없든 같은 결과여야 해서, 내장 위치는 항상 임시 폴더로 바꿔 시험한다.
 """
 
@@ -93,13 +93,16 @@ def test_both_adapter_files_are_needed(tmp_path, monkeypatch):
     assert adapter_folders(settings) == {ADAPTER_NAME: str(path)}  # .bin 도 가중치로 본다
 
 
-def test_llm_adapters_is_ignored_for_the_builtin_name(folder, tmp_path):
-    other = str(tmp_path / "elsewhere")
-    assert adapter_folders(SimpleNamespace(llm_adapters={ADAPTER_NAME: other})) == {ADAPTER_NAME: str(folder)}  # 환경변수 경로가 아니라 내장 폴더
+def test_llm_adapters_value_is_used_for_the_builtin_name(folder, tmp_path):
+    mounted = make_adapter(tmp_path / "models" / "adapters" / "work_register")
+    assert adapter_folders(SimpleNamespace(llm_adapters={ADAPTER_NAME: str(mounted)})) == {ADAPTER_NAME: str(mounted)}  # 기본 위치(folder)에도 파일이 있지만 LLM_ADAPTERS 가 이긴다
 
 
-def test_llm_adapters_cannot_switch_the_builtin_name_on(no_folder):
-    assert adapter_folders(SimpleNamespace(llm_adapters={ADAPTER_NAME: "/models/adapters/plan_brief"})) == {}  # 파일이 없으면 환경변수가 있어도 없는 것
+def test_llm_adapters_value_without_files_does_not_fall_back_to_the_default(folder, tmp_path):
+    empty = tmp_path / "mounted-but-empty"
+    empty.mkdir()
+    assert adapter_folders(SimpleNamespace(llm_adapters={ADAPTER_NAME: str(empty)})) == {}  # 경로를 잘못 준 것이 어댑터 없음으로 드러난다
+    assert adapter_folders(SimpleNamespace(llm_adapters={ADAPTER_NAME: str(tmp_path / "no-such-folder")})) == {}
 
 
 def test_other_adapters_are_kept_and_the_settings_are_not_changed(folder):
@@ -143,10 +146,10 @@ def test_engine_switch_off_wins_and_stays_quiet(folder, monkeypatch, caplog):
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
-def test_engine_ignores_llm_adapters_when_the_adapter_files_are_missing(no_folder, caplog):
+def test_engine_without_files_at_the_llm_adapters_path_goes_on_without_the_adapter(no_folder, caplog):
     with caplog.at_level(logging.INFO, logger=ENGINE_LOG):
         client = build_work_register_client(settings=engine_settings(llm_adapters={ADAPTER_NAME: "/models/adapters/plan_brief"}))
-    assert client.adapter is None  # 환경변수가 있어도 파일이 없으면 어댑터 없이
+    assert client.adapter is None  # LLM_ADAPTERS 에 있어도 파일이 없으면 어댑터 없이
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
 
 
@@ -179,7 +182,7 @@ def test_adapter_ready_follows_the_folder(folder, tmp_path):
 def test_adapter_ready_is_false_without_a_folder(no_folder, monkeypatch):
     assert adapter_ready(SimpleNamespace(adapter=ADAPTER_NAME)) is False
     monkeypatch.setattr("app.core.get_settings", lambda: SimpleNamespace(llm_adapters={ADAPTER_NAME: "/models/adapters/plan_brief"}))
-    assert adapter_ready(SimpleNamespace(adapter=ADAPTER_NAME)) is False  # 환경변수가 있어도 같다
+    assert adapter_ready(SimpleNamespace(adapter=ADAPTER_NAME)) is False  # LLM_ADAPTERS 에 있어도 파일이 없으면 같다
 
 
 def test_planner_uses_the_short_prompt_when_the_folder_exists(folder):
@@ -203,7 +206,7 @@ def test_planner_keeps_the_old_long_prompt_without_a_folder(no_folder):
 
 def test_transformers_folder_table_includes_the_builtin_folder(folder, monkeypatch):
     assert llm_transformers._adapter_paths() == {ADAPTER_NAME: str(folder)}
-    monkeypatch.setattr("app.core.get_settings", lambda: SimpleNamespace(llm_adapters={"extract": "/x", ADAPTER_NAME: "/y"}))
+    monkeypatch.setattr("app.core.get_settings", lambda: SimpleNamespace(llm_adapters={"extract": "/x"}))
     assert llm_transformers._adapter_paths() == {"extract": "/x", ADAPTER_NAME: str(folder)}
 
 
@@ -246,3 +249,88 @@ def test_the_builtin_folder_is_what_gets_attached(folder, fake_peft):
 def test_without_a_folder_the_base_model_answers_and_peft_is_not_used(no_folder, fake_peft):
     assert _chat(ADAPTER_NAME) == "모델 응답"
     assert _FakePeft.calls == []
+
+
+# ── 환경변수 LLM_ADAPTERS 의 "plan_brief" (docker 용, 11/19 4판) ──
+
+
+def make_adapter(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (path / "adapter_model.safetensors").write_bytes(b"x")
+    return path
+
+
+def adapters(value, **others):
+    return SimpleNamespace(llm_adapters={ADAPTER_NAME: value, **others})
+
+
+def test_settings_reads_llm_adapters_json_and_has_no_separate_path_field(monkeypatch, tmp_path):
+    from app.core.config import Settings
+
+    def build() -> Settings:
+        return Settings(_env_file=None, network_env="OPEN", check_rules_tool="MOCK", msds_tool="MOCK")
+
+    monkeypatch.delenv("LLM_ADAPTERS", raising=False)
+    assert build().llm_adapters == {}
+    monkeypatch.setenv("LLM_ADAPTERS", f'{{"extract": "/models/adapters/extract", "plan_brief": "{tmp_path.as_posix()}"}}')
+    assert build().llm_adapters == {"extract": "/models/adapters/extract", "plan_brief": tmp_path.as_posix()}
+    assert not hasattr(build(), "work_register_adapters_path")  # 3판의 별도 필드는 없앴다
+
+
+@pytest.mark.parametrize("blank", [None, "", "   "])
+def test_blank_llm_adapters_value_falls_back_to_the_default_folder(folder, blank):
+    assert adapter_folders(adapters(blank)) == {ADAPTER_NAME: str(folder)}
+
+
+def test_llm_adapters_value_is_stripped_and_must_be_a_folder_not_a_file(no_folder, tmp_path):
+    mounted = make_adapter(tmp_path / "w")
+    assert adapter_folders(adapters(f"  {mounted}  ")) == {ADAPTER_NAME: str(mounted)}
+    assert adapter_folders(adapters(str(mounted / "adapter_config.json"))) == {}  # 파일을 가리키면 어댑터 폴더가 아니다
+
+
+def test_adapter_dir_reports_where_it_looks(folder, tmp_path):
+    assert adapter_paths.adapter_dir(ADAPTER_NAME, SimpleNamespace(llm_adapters={})) == folder
+    assert adapter_paths.adapter_dir(ADAPTER_NAME, adapters(str(tmp_path / "x"))) == tmp_path / "x"
+    assert adapter_paths.adapter_dir("extract", adapters(str(tmp_path / "x"), extract="/e")) is None  # 기본 위치가 없는 이름은 이 규칙을 쓰지 않는다
+
+
+def test_extract_keeps_working_next_to_plan_brief(no_folder, tmp_path):
+    mounted = make_adapter(tmp_path / "work_register")
+    result = adapter_folders(adapters(str(mounted), extract="/models/adapters/extract"))
+    assert result == {"extract": "/models/adapters/extract", ADAPTER_NAME: str(mounted)}  # extract 는 파일 유무를 따지지 않고 그대로 (C 의 방식)
+
+
+def test_engine_uses_the_llm_adapters_path_and_logs_it(no_folder, tmp_path, caplog):
+    mounted = make_adapter(tmp_path / "mounted")
+    with caplog.at_level(logging.INFO, logger=ENGINE_LOG):
+        client = build_work_register_client(settings=engine_settings(llm_adapters={ADAPTER_NAME: str(mounted)}))
+    assert client.adapter == ADAPTER_NAME
+    assert any(str(mounted) in r.getMessage() and r.levelno == logging.INFO for r in caplog.records)
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_engine_warning_names_the_path_it_looked_at_and_the_variable(no_folder, tmp_path, caplog):
+    wrong = tmp_path / "wrong-mount"
+    with caplog.at_level(logging.INFO, logger=ENGINE_LOG):
+        client = build_work_register_client(settings=engine_settings(llm_adapters={ADAPTER_NAME: str(wrong)}))
+    assert client.adapter is None
+    message = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING][0]
+    assert str(wrong) in message and "LLM_ADAPTERS" in message and "plan_brief" in message and "긴 프롬프트" in message
+
+
+def test_short_prompt_and_attach_follow_the_llm_adapters_path(no_folder, tmp_path, monkeypatch):
+    mounted = make_adapter(tmp_path / "mounted")
+    monkeypatch.setattr("app.core.get_settings", lambda: adapters(str(mounted)))
+    assert adapter_ready(SimpleNamespace(adapter=ADAPTER_NAME)) is True
+    assert llm_transformers._adapter_paths() == {ADAPTER_NAME: str(mounted)}
+    monkeypatch.setattr("app.core.get_settings", lambda: adapters(str(tmp_path / "gone")))
+    assert adapter_ready(SimpleNamespace(adapter=ADAPTER_NAME)) is False
+    assert llm_transformers._adapter_paths() == {}
+
+
+def test_the_chosen_folder_is_what_gets_attached(no_folder, tmp_path, monkeypatch, fake_peft):
+    mounted = make_adapter(tmp_path / "mounted")
+    monkeypatch.setattr("app.core.get_settings", lambda: adapters(str(mounted)))
+    assert _chat(ADAPTER_NAME) == "모델 응답"
+    assert _FakePeft.calls == [("from_pretrained", str(mounted), ADAPTER_NAME)]

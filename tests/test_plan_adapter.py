@@ -1,6 +1,6 @@
 """계획 단계 LoRA 어댑터 연결 (plan_adapter.py, llm_work_register.py, plan_brief.BriefPlanner).
 
-기본(LLM_ADAPTERS 에 plan_brief 없음)은 변경 전과 같고, 어댑터를 쓸 수 있을 때만 학습 때와 같은 짧은 프롬프트가 나간다.
+기본(LLM_ADAPTERS 에 work_register 없음)은 변경 전과 같고, 어댑터를 쓸 수 있을 때만 학습 때와 같은 짧은 프롬프트가 나간다.
 모델은 부르지 않는다 (가짜 클라이언트).
 """
 
@@ -43,7 +43,7 @@ def make_work(**kw) -> WorkContext:
 
 @pytest.fixture
 def adapter_dir(tmp_path, monkeypatch):
-    """LLM_ADAPTERS 에 plan_brief 가 있고 폴더에 adapter_config.json 이 있는 상태."""
+    """LLM_ADAPTERS 에 work_register 가 있고 폴더에 adapter_config.json 이 있는 상태."""
     folder = tmp_path / "plan_brief"
     folder.mkdir()
     (folder / "adapter_config.json").write_text("{}", encoding="utf-8")
@@ -166,7 +166,7 @@ def settings_with(adapters):
 
 def test_engine_adapter_defaults_to_none():
     assert WorkRegisterClient.adapter is None
-    assert ADAPTER_NAME == "plan_brief"
+    assert ADAPTER_NAME == "work_register"
     assert llm_work_register.ADAPTER_ENABLED is True
 
 

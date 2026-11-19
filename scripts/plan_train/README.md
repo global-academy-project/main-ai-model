@@ -25,7 +25,7 @@
 | 채팅 템플릿 | `apply_chat_template(add_generation_prompt=True, enable_thinking=False)` | `llm_transformers.generate_chat` (엔진 설정 `enable_thinking=False`) |
 | 정답 | JSON + `<|im_end|>`(eos). **손실은 정답+eos 에만** | 그리디, eos 에서 멈춤, `BRIEF_MAX_TOKENS=160` |
 | 검증 | 데이터 줄마다 `clean_equipment`·`clean_materials`·`clean_summary` 를 거쳐 하나도 안 버려지는 줄만 | 같은 함수 |
-| 붙이는 방식 | `get_peft_model` 로 학습, `save_pretrained` | `PeftModel.from_pretrained(adapter_name="plan_brief")` |
+| 붙이는 방식 | `get_peft_model` 로 학습, `save_pretrained` | `PeftModel.from_pretrained(adapter_name="work_register")` |
 
 ## 학습 데이터 (합성)
 
@@ -65,7 +65,7 @@ python -m scripts.plan_eval.compare "out/plan_eval/*.summary.json" --out out/pla
 
 ## 서버에 쓰려면 (④, 결과를 본 뒤)
 
-`.env`/compose 에 `LLM_ADAPTERS={"plan_brief": "<어댑터 폴더>"}` 한 줄. 이 이름이 있을 때만 `WORK_REGISTER` 엔진이 어댑터를 붙이고 짧은 프롬프트를 쓴다.
+`.env`/compose 에 `LLM_ADAPTERS={"work_register": "<어댑터 폴더>"}` 한 줄 (없으면 기본 위치 `adapters/work_register`). 그 폴더에 어댑터 파일(설정 + 가중치)이 있을 때만 `WORK_REGISTER` 엔진이 어댑터를 붙이고 짧은 프롬프트를 쓴다.
 A 엔진 모델(`model_id`)이 학습한 기본 모델과 같아야 한다. 1.7B 로 정하면 A 가 D 와 같은 모델을 쓰게 되어 메모리·생성 잠금이 달라진다 (T22). 이 결정은 측정 결과를 본 뒤에 한다.
 
 ## 검증 범위
