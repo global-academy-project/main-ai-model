@@ -3,6 +3,7 @@
 입구가 받는 시나리오는 A(작업 등록)·E(기록 조회·감사)·F(소규모 사업장 안내) 셋이다. 순서:
 
   1. 현장 모드가 GUIDE면 말을 보지 않고 곧바로 F (LLM·검색 없음).            → FORCED_BY_MODE
+     (F가 채팅 범위 CHAT_SCENARIOS에 없으면 이 단계를 건너뛴다: GUIDE 현장도 아래 규칙으로 A·E를 가른다)
   2. 그 밖에는 키워드 규칙으로 A와 E를 가른다 (LLM·검색 없음).                → E_STRONG / A_STRONG / A_WEAK
        E 키워드만 있다 → E        A 키워드만 있다 → A
        E와 A의 강한 키워드가 함께 있다, 또는 아무 키워드도 없다 → 정하지 않고 되묻는다 ("작업 등록인가요, 기록 조회인가요?")
@@ -52,6 +53,15 @@ A_WEAK: tuple[str, ...] = (
 
 RULE_CONFIDENCE = 0.8  # 키워드 규칙으로 정한 결과의 확신도 (LLM 확신도와 같은 0~1 척도의 고정값)
 
+# 감사 보고서를 말하는 문장은 '만들어/작성해'가 있어도 E다 (작업 등록의 서류는 위험성평가·허가서·점검표·TBM이고 보고서가 아니다).
+# '감사합니다' 같은 인사말은 감사 기록 얘기가 아니므로 E 키워드를 찾기 전에 지운다 (작업 등록 문장 끝의 인사가 E가 되지 않게).
+# '등록'·'신청'이 함께 있으면 이전 규칙대로 (정하지 않고 되묻는다).
+# 끄기: AUDIT_PRIORITY = False → 이전 규칙 그대로 ('감사 보고서 만들어줘'는 되묻고, '감사합니다'도 E 키워드로 읽는다)
+AUDIT_PRIORITY = True
+AUDIT_WORDS: tuple[str, ...] = ("감사", "보고서")
+REGISTER_WORDS: tuple[str, ...] = ("등록", "신청")
+_THANKS_RE = re.compile(r"감사\s*(?:합니다|합니당|해요|했|드립|드려|히|하다|함)")
+
 
 def _hits(text: str, words: Iterable[str]) -> list[str]:
     return [w for w in words if w in text]
@@ -92,16 +102,22 @@ def decide(text: str, *, mode: str | None = None, allowed: tuple[Scenario, ...] 
         return _scoped_unknown_empty(allowed)
 
     forced = FORCED_BY_MODE.get(mode or "")
-    if forced is not None:
+    if forced is not None and (allowed is None or forced in allowed):  # F가 채팅 범위 밖이면 강제하지 않는다
         decision = ScenarioDecision(forced, 1.0, f"현장 모드 {mode} → {forced.value} (말을 보지 않고 정함)", "explicit")
         return _scoped(decision, allowed)
 
     lowered = text.lower()
-    e = _hits(lowered, E_STRONG)
+    audit_text = _THANKS_RE.sub(" ", lowered) if AUDIT_PRIORITY else lowered
+    e = _hits(audit_text, E_STRONG)
     a_strong = _hits(lowered, A_STRONG)
     if (clock := _TIME_RE.search(lowered)) is not None:
         a_strong.append(clock.group(0))
     a_weak = _hits(lowered, A_WEAK)
+
+    if AUDIT_PRIORITY and _hits(audit_text, AUDIT_WORDS) and not _hits(lowered, REGISTER_WORDS):
+        return _scoped(
+            ScenarioDecision(Scenario.AUDIT_QUERY, RULE_CONFIDENCE, "키워드 규칙: E 감사·보고서", "fallback"), allowed
+        )
 
     if e and not a_strong:
         return _scoped(ScenarioDecision(Scenario.AUDIT_QUERY, RULE_CONFIDENCE, f"키워드 규칙: E {e[:3]}", "fallback"), allowed)

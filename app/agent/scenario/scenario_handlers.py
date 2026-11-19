@@ -50,17 +50,18 @@ _WORK_REGISTER_PAIR = frozenset({Scenario.WORK_REGISTER, Scenario.GUIDE})
 
 
 def load_chat_scenarios(raw: str | Iterable[str] | None) -> tuple[Scenario, ...] | None:
-    """채팅 범위 설정(`CHAT_SCENARIOS`, 예 "A,F")을 읽고 검사한다. None·빈 값이면 None(전부).
+    """채팅 범위 설정(`CHAT_SCENARIOS`, 예 "A,E")을 읽고 검사한다. None·빈 값이면 None(전부).
 
     기동 때 `create_app()`이 한 번 부른다 (잘못된 값이면 ValueError로 서버가 뜨지 않는다).
     - 모르는 글자·UNKNOWN: ValueError (`parse_chat_scenarios`)
-    - A와 F 중 하나만: ValueError. 현장 모드 보정으로 A↔F가 서로 바뀌므로, 하나만 넣으면
-      그 현장 모드의 작업 등록이 전부 "전용 화면에서 이용해 주세요"로 끝난다.
+    - F가 있는데 A가 없다: ValueError. 현장 모드 보정으로 A↔F가 서로 바뀌므로 F만 넣으면
+      VERIFY 현장의 작업 등록이 전부 "전용 화면에서 이용해 주세요"로 끝난다.
+      F 없이 A만 넣는 것은 정상이다 (F는 구현하지 않는다): mode=GUIDE 요청도 A로 처리한다.
     """
     chat = parse_chat_scenarios(raw)
-    if chat is not None and len(_WORK_REGISTER_PAIR & set(chat)) == 1:
+    if chat is not None and Scenario.GUIDE in chat and Scenario.WORK_REGISTER not in chat:
         raise ValueError(
-            "CHAT_SCENARIOS에는 A와 F를 함께 넣어야 합니다 (작업 등록은 현장 모드로 A·F가 정해집니다). "
+            "CHAT_SCENARIOS에 F를 넣으려면 A도 함께 넣어야 합니다 (작업 등록은 현장 모드로 A·F가 정해집니다). "
             f"지금 값: {','.join(s.value for s in chat)}"
         )
     return chat
@@ -117,9 +118,20 @@ def make_work_register_handler(
 
 
 def register_work_register_handlers(
-    dispatcher: ScenarioDispatcher, tools: ToolInvoker, *, judge_max_tokens: int | None = None
+    dispatcher: ScenarioDispatcher, tools: ToolInvoker, *, judge_max_tokens: int | None = None, guide: bool = True
 ) -> None:
-    """A·F 처리기를 디스패처에 등록한다 (이어 가기 상태 확인, 현장 모드 보정 포함)."""
+    """A·F 처리기를 디스패처에 등록한다 (이어 가기 상태 확인, 현장 모드 보정 포함).
+
+    guide=False(CHAT_SCENARIOS에 F가 없다): F를 구현하지 않는다. A 처리기만 등록하고 현장 모드 보정도 하지 않는다.
+    mode=GUIDE 요청도 A로 처리하며, mode 값은 에이전트에 그대로 넘긴다 (쉬운 말 안내문·완료 문구가 남는다).
+    """
+    if not guide:
+        dispatcher.register(
+            Scenario.WORK_REGISTER,
+            make_work_register_handler(tools, mode=None, judge_max_tokens=judge_max_tokens),
+            continuation_check=work_register_continuation_problem,
+        )
+        return
     for scenario in (Scenario.WORK_REGISTER, Scenario.GUIDE):
         dispatcher.register(
             scenario,
