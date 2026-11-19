@@ -16,16 +16,16 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-from app.law_ingest import config, stages, update, validate
-from app.law_ingest.chunk import make_pieces, split_article
-from app.law_ingest.cli import main as cli_main
-from app.law_ingest.clean import clean_law
-from app.law_ingest.config import BuildSettings
-from app.law_ingest.fields import build_records, to_ingest_item
-from app.law_ingest.models import ParsedLaw, nonspace
-from app.law_ingest.parse import ParseError, parse_source
-from app.law_ingest.readers import ReaderError, read_source
-from app.law_ingest.render import article_lines
+from app.chunking.law_ingest import config, stages, update, validate
+from app.chunking.law_ingest.chunk import make_pieces, split_article
+from app.chunking.law_ingest.cli import main as cli_main
+from app.chunking.law_ingest.clean import clean_law
+from app.chunking.law_ingest.config import BuildSettings
+from app.chunking.law_ingest.fields import build_records, to_ingest_item
+from app.chunking.law_ingest.models import ParsedLaw, nonspace
+from app.chunking.law_ingest.parse import ParseError, parse_source
+from app.chunking.law_ingest.readers import ReaderError, read_source
+from app.chunking.law_ingest.render import article_lines
 
 NS_S = "http://www.hancom.co.kr/hwpml/2011/section"
 NS_P = "http://www.hancom.co.kr/hwpml/2011/paragraph"
@@ -335,7 +335,7 @@ class TestChunk:
         assert joined == article_lines(art(cleaned, "제4조"))
 
     def test_split_at_hang_boundaries(self):
-        from app.law_ingest.models import Article, Node
+        from app.chunking.law_ingest.models import Article, Node
 
         nodes = [Node("항", chr(0x2460 + i), "내용" * 60) for i in range(4)]
         a = Article(0, "9", "제9조", "항들", "ACTIVE", [], True, nodes, [], [], [], 0, 0)
@@ -397,7 +397,7 @@ class TestFields:
         assert len(pairs) == len(set(pairs))
 
     def test_tags_default_off_and_switch_on(self, cleaned, monkeypatch):
-        from app.law_ingest import tags
+        from app.chunking.law_ingest import tags
 
         monkeypatch.setattr(tags, "TAG_RULES", [(r"제2장 작업", ["HOT"], ["CHEMICAL"])])
         off = next(x for x in self.records(cleaned) if x["article_label"] == "제5조")
