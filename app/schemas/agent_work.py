@@ -225,6 +225,19 @@ class LlmSources(BaseModel):
     judgment: Literal["llm", "fallback"] | None = None
 
 
+class RouteInfo(CamelModel):
+    """채팅이 작업 등록이 아니라 다른 화면의 일로 이어질 때의 안내 (감사 대응). 작업 등록 응답에서는 null.
+
+    target=AUDIT_REPORT: 초안(drafts)은 없다. Spring이 dateFrom~dateTo로 감사 보고서 만들기를 시작하고,
+    채팅은 그 보고서가 끝나면 감사 대응 화면으로 가는 버튼을 보인다 (app/agent/scenario/audit_route_handler.py).
+    """
+
+    target: Literal["AUDIT_REPORT"]
+    date_from: str = Field(description="YYYY-MM-DD")
+    date_to: str = Field(description="YYYY-MM-DD")
+    message: str = Field(description="채팅창에 보일 안내 문구")
+
+
 class WorkRegisterResult(CamelModel):
     run_status: Literal["WAITING_INPUT", "DONE"]
     slots: WorkSlots
@@ -239,6 +252,9 @@ class WorkRegisterResult(CamelModel):
     verification: list[VerificationIssue] = Field(default_factory=list)
     guidance: list[GuidanceNote] = Field(default_factory=list)
     llm_sources: LlmSources = Field(default_factory=LlmSources)
+    route: RouteInfo | None = Field(
+        default=None, description="작업 등록이 아닌 화면으로 이어질 때만 (감사 대응: target=AUDIT_REPORT)"
+    )
     steps: list[AgentStepDto] = Field(default_factory=list)
 
 

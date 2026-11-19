@@ -18,8 +18,9 @@ _SCENARIO_KEYS = frozenset({"router", "default", "A", "B", "C", "D", "E", "F"})
 _BINDING_FIELDS = frozenset({"engine", "model_id"})
 
 # SCENARIO_MODELS 표 아래, class Settings 위
-# 통합 채팅창에서 분류할 시나리오 (글자, 쉼표로). A와 F는 함께 넣는다. D·E는 처리기를 붙일 때 자기 글자를 더한다.
-CHAT_SCENARIOS = "A,E,F"
+# 통합 채팅창에서 분류할 시나리오 (글자, 쉼표로). F(소규모 사업장 안내)는 구현하지 않기로 해서 기본에서 뺐다 (11/19).
+# F를 쓰려면 CHAT_SCENARIOS=A,E,F (F를 넣으려면 A도 함께). D·E는 처리기를 붙일 때 자기 글자를 더한다.
+CHAT_SCENARIOS = "A,E"
 
 # ── 시나리오별 LLM 모델 선택표 ──────────────────────────────────────────────
 # 각 담당자는 자기 시나리오 줄만 고친다. 고친 뒤 서버를 다시 띄우면 적용된다.
@@ -84,6 +85,7 @@ class Settings(BaseSettings):
 
     # lookup_msds 도구: MOCK(기본, 연습 데이터 12개) | KOSHA(공단 MSDS API). KOSHA에는 키가 필요하다 (환경변수 KOSHA_MSDS_SERVICE_KEY).
     msds_tool: Literal["MOCK", "KOSHA"] = "KOSHA"
+    # msds_tool: Literal["MOCK", "KOSHA"] = "MOCK"
     kosha_msds_service_key: SecretStr | None = None
 
     # 시나리오별 엔진·모델. 기본값은 위 SCENARIO_MODELS 표다 (복사본을 써서 표 자체는 바뀌지 않는다).
@@ -148,6 +150,7 @@ class Settings(BaseSettings):
     )
 
     chat_scenarios: str = CHAT_SCENARIOS
+    audit_route_enabled: bool = False
 
     @property
     def rag_backend_path(self) -> str | None:

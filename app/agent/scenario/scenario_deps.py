@@ -11,6 +11,7 @@ from app.agent.scenario.scenario_classifier import ScenarioClassifier
 from app.agent.scenario.scenario_dispatch import ScenarioDispatcher
 from app.agent.scenario.scenario_handlers import load_chat_scenarios, register_work_register_handlers
 from app.agent.scenario.daily_safety_log_handler import make_daily_safety_log_handler
+from app.agent.scenario.audit_route_handler import make_audit_route_handler
 from app.agent.scenario.scenario_retriever import ReferenceRetriever
 from app.agent.scenario.scenario_router import Scenario
 from app.core.config import get_settings
@@ -56,8 +57,16 @@ def get_scenario_dispatcher(
     classifier = ScenarioClassifier(provider, ReferenceRetriever(registry), chat_scenarios=chat)
     dispatcher = ScenarioDispatcher(provider, chat_scenarios=chat, classifier=classifier)
     # /work-register(agent_deps.get_work_register_agent)와 같은 출력 토큰 한도를 쓴다
-    register_work_register_handlers(dispatcher, registry, judge_max_tokens=settings.ai_max_output_tokens)
+    # F는 채팅 범위(CHAT_SCENARIOS)에 있을 때만 쓴다. 없으면 mode=GUIDE 요청도 A로 처리한다
+    register_work_register_handlers(
+        dispatcher,
+        registry,
+        judge_max_tokens=settings.ai_max_output_tokens,
+        guide=chat is None or Scenario.GUIDE in chat,
+    )
     dispatcher.register(Scenario.DASHBOARD, make_daily_safety_log_handler())
+    if settings.audit_route_enabled:  # E(감사 대응): 기간을 읽어 감사 대응 화면으로 보낸다 (보고서는 Spring이 만든다)
+        dispatcher.register(Scenario.AUDIT_QUERY, make_audit_route_handler())
     return dispatcher
 
 
