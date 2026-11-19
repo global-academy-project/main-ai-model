@@ -75,6 +75,8 @@ class Settings(BaseSettings):
         ge=1,
         le=100_000,
     )
+    # 감사보고서 P2 문장 생성. False면 P1 템플릿 문장을 그대로 사용한다.
+    audit_narrative_llm: bool = False
 
     check_rules_tool: Literal["MOCK", "SPRING"]
     internal_api_base_url: str | None = None
