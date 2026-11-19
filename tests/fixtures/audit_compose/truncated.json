@@ -1,0 +1,1776 @@
+{
+  "reportId": 7,
+  "siteId": 1,
+  "dateFrom": "2026-10-01",
+  "dateTo": "2026-10-31",
+  "items": [
+    {
+      "queryType": "risk_assessment_rate",
+      "title": "위험성평가 실시율",
+      "stats": {
+        "works": 12,
+        "written": 10,
+        "approved": 8,
+        "missing": 2,
+        "rate": 83.3,
+        "approvedRate": 66.7
+      },
+      "records": [
+        {
+          "workType": "HOT",
+          "works": 5,
+          "written": 5,
+          "approved": 4,
+          "missing": 0,
+          "rate": 100.0,
+          "approvedRate": 80.0
+        },
+        {
+          "workType": "CONFINED",
+          "works": 4,
+          "written": 3,
+          "approved": 2,
+          "missing": 1,
+          "rate": 75.0,
+          "approvedRate": 50.0
+        },
+        {
+          "workType": "HEIGHT",
+          "works": 3,
+          "written": 2,
+          "approved": 2,
+          "missing": 1,
+          "rate": 66.7,
+          "approvedRate": 66.7
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "queryType": "permit_approval_statistics",
+      "title": "작업허가 승인 현황",
+      "stats": {
+        "permits": 14,
+        "requested": 13,
+        "approved": 9,
+        "rejected": 2,
+        "canceled": 1,
+        "blocked": 3,
+        "approvalRate": 81.8
+      },
+      "records": [
+        {
+          "permitType": "HOT",
+          "permits": 6,
+          "requested": 6,
+          "approved": 4,
+          "rejected": 1,
+          "canceled": 0,
+          "blocked": 2,
+          "approvalRate": 80.0
+        },
+        {
+          "permitType": "CONFINED",
+          "permits": 5,
+          "requested": 4,
+          "approved": 3,
+          "rejected": 1,
+          "canceled": 1,
+          "blocked": 1,
+          "approvalRate": 75.0
+        },
+        {
+          "permitType": "HEIGHT",
+          "permits": 3,
+          "requested": 3,
+          "approved": 2,
+          "rejected": 0,
+          "canceled": 0,
+          "blocked": 0,
+          "approvalRate": 100.0
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "queryType": "corrective_action_rate",
+      "title": "지적사항 조치율",
+      "stats": {
+        "actions": 6,
+        "completed": 3,
+        "verified": 1,
+        "open": 3,
+        "overdue": 1,
+        "completionRate": 50.0
+      },
+      "records": [
+        {
+          "actionId": 31,
+          "title": "밀폐공간 환기 설비 점검",
+          "status": "VERIFIED",
+          "dueDate": "2026-10-10",
+          "sourceType": "INSPECTION"
+        },
+        {
+          "actionId": 32,
+          "title": "화기작업 구역 소화기 추가 비치",
+          "status": "DONE",
+          "dueDate": "2026-10-12",
+          "sourceType": "RULE_VIOLATION"
+        },
+        {
+          "actionId": 33,
+          "title": "고소작업 안전대 걸이 보강",
+          "status": "DONE",
+          "dueDate": "2026-10-15",
+          "sourceType": "NEAR_MISS"
+        },
+        {
+          "actionId": 34,
+          "title": "가스 측정기 교정 이력 정리",
+          "status": "OPEN",
+          "dueDate": "2026-10-20",
+          "sourceType": "AUDIT"
+        },
+        {
+          "actionId": 35,
+          "title": "작업허가 서식 안내 교육",
+          "status": "IN_PROGRESS",
+          "dueDate": "2026-11-30",
+          "sourceType": "OTHER"
+        },
+        {
+          "actionId": 36,
+          "title": "출입 통제 표지 보완",
+          "status": "OPEN",
+          "dueDate": "2026-12-05",
+          "sourceType": "INSPECTION"
+        }
+      ],
+      "evidence": [
+        {
+          "type": "CORRECTIVE_ACTION",
+          "id": 31
+        },
+        {
+          "type": "CORRECTIVE_ACTION",
+          "id": 32
+        },
+        {
+          "type": "CORRECTIVE_ACTION",
+          "id": 33
+        },
+        {
+          "type": "CORRECTIVE_ACTION",
+          "id": 34
+        },
+        {
+          "type": "CORRECTIVE_ACTION",
+          "id": 35
+        },
+        {
+          "type": "CORRECTIVE_ACTION",
+          "id": 36
+        }
+      ]
+    },
+    {
+      "queryType": "blocked_records",
+      "title": "차단 기록",
+      "stats": {
+        "count": 3
+      },
+      "records": [
+        {
+          "permitId": 101,
+          "permitNo": "HP-202610-0003",
+          "permitType": "HOT",
+          "evaluationId": 501,
+          "blockedAt": "2026-10-07T09:12:00",
+          "violations": [
+            {
+              "ruleCode": "FIRE_WATCH_REQUIRED",
+              "actual": null,
+              "expected": "지정",
+              "severity": "BLOCK",
+              "message": "화기작업에는 감시인을 지정해야 함",
+              "legalBasis": null
+            }
+          ],
+          "currentStatus": "REQUESTED"
+        },
+        {
+          "permitId": 102,
+          "permitNo": "CP-202610-0002",
+          "permitType": "CONFINED",
+          "evaluationId": 502,
+          "blockedAt": "2026-10-14T10:40:00",
+          "violations": [
+            {
+              "ruleCode": "CONFINED_O2_RANGE",
+              "actual": "18.2",
+              "expected": "18.0 이상",
+              "severity": "BLOCK",
+              "message": "산소 농도가 기준 범위를 벗어남",
+              "legalBasis": null
+            },
+            {
+              "ruleCode": "CONFINED_WATCHER",
+              "actual": null,
+              "expected": "지정",
+              "severity": "BLOCK",
+              "message": "감시인이 지정되지 않음",
+              "legalBasis": null
+            }
+          ],
+          "currentStatus": "APPROVED"
+        },
+        {
+          "permitId": 103,
+          "permitNo": "WH-202610-0001",
+          "permitType": "HEIGHT",
+          "evaluationId": 503,
+          "blockedAt": "2026-10-21T14:05:00",
+          "violations": [
+            {
+              "ruleCode": "HEIGHT_HARNESS",
+              "actual": null,
+              "expected": "착용",
+              "severity": "BLOCK",
+              "message": "안전대 착용 확인이 없음",
+              "legalBasis": null
+            }
+          ],
+          "currentStatus": "REJECTED"
+        }
+      ],
+      "evidence": [
+        {
+          "type": "PERMIT",
+          "id": 101
+        },
+        {
+          "type": "PERMIT",
+          "id": 102
+        },
+        {
+          "type": "PERMIT",
+          "id": 103
+        }
+      ]
+    },
+    {
+      "queryType": "missing_measurements",
+      "title": "측정값 없이 승인된 허가",
+      "stats": {
+        "count": 130
+      },
+      "records": [
+        {
+          "permitId": 1000,
+          "permitNo": "CP-202610-0000",
+          "permitType": "CONFINED",
+          "workTitle": "점검 0",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1001,
+          "permitNo": "CP-202610-0001",
+          "permitType": "CONFINED",
+          "workTitle": "점검 1",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1002,
+          "permitNo": "CP-202610-0002",
+          "permitType": "CONFINED",
+          "workTitle": "점검 2",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1003,
+          "permitNo": "CP-202610-0003",
+          "permitType": "CONFINED",
+          "workTitle": "점검 3",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1004,
+          "permitNo": "CP-202610-0004",
+          "permitType": "CONFINED",
+          "workTitle": "점검 4",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1005,
+          "permitNo": "CP-202610-0005",
+          "permitType": "CONFINED",
+          "workTitle": "점검 5",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1006,
+          "permitNo": "CP-202610-0006",
+          "permitType": "CONFINED",
+          "workTitle": "점검 6",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1007,
+          "permitNo": "CP-202610-0007",
+          "permitType": "CONFINED",
+          "workTitle": "점검 7",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1008,
+          "permitNo": "CP-202610-0008",
+          "permitType": "CONFINED",
+          "workTitle": "점검 8",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1009,
+          "permitNo": "CP-202610-0009",
+          "permitType": "CONFINED",
+          "workTitle": "점검 9",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1010,
+          "permitNo": "CP-202610-0010",
+          "permitType": "CONFINED",
+          "workTitle": "점검 10",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1011,
+          "permitNo": "CP-202610-0011",
+          "permitType": "CONFINED",
+          "workTitle": "점검 11",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1012,
+          "permitNo": "CP-202610-0012",
+          "permitType": "CONFINED",
+          "workTitle": "점검 12",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1013,
+          "permitNo": "CP-202610-0013",
+          "permitType": "CONFINED",
+          "workTitle": "점검 13",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1014,
+          "permitNo": "CP-202610-0014",
+          "permitType": "CONFINED",
+          "workTitle": "점검 14",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1015,
+          "permitNo": "CP-202610-0015",
+          "permitType": "CONFINED",
+          "workTitle": "점검 15",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1016,
+          "permitNo": "CP-202610-0016",
+          "permitType": "CONFINED",
+          "workTitle": "점검 16",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1017,
+          "permitNo": "CP-202610-0017",
+          "permitType": "CONFINED",
+          "workTitle": "점검 17",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1018,
+          "permitNo": "CP-202610-0018",
+          "permitType": "CONFINED",
+          "workTitle": "점검 18",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1019,
+          "permitNo": "CP-202610-0019",
+          "permitType": "CONFINED",
+          "workTitle": "점검 19",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1020,
+          "permitNo": "CP-202610-0020",
+          "permitType": "CONFINED",
+          "workTitle": "점검 20",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1021,
+          "permitNo": "CP-202610-0021",
+          "permitType": "CONFINED",
+          "workTitle": "점검 21",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1022,
+          "permitNo": "CP-202610-0022",
+          "permitType": "CONFINED",
+          "workTitle": "점검 22",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1023,
+          "permitNo": "CP-202610-0023",
+          "permitType": "CONFINED",
+          "workTitle": "점검 23",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1024,
+          "permitNo": "CP-202610-0024",
+          "permitType": "CONFINED",
+          "workTitle": "점검 24",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1025,
+          "permitNo": "CP-202610-0025",
+          "permitType": "CONFINED",
+          "workTitle": "점검 25",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1026,
+          "permitNo": "CP-202610-0026",
+          "permitType": "CONFINED",
+          "workTitle": "점검 26",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1027,
+          "permitNo": "CP-202610-0027",
+          "permitType": "CONFINED",
+          "workTitle": "점검 27",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1028,
+          "permitNo": "CP-202610-0028",
+          "permitType": "CONFINED",
+          "workTitle": "점검 28",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1029,
+          "permitNo": "CP-202610-0029",
+          "permitType": "CONFINED",
+          "workTitle": "점검 29",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1030,
+          "permitNo": "CP-202610-0030",
+          "permitType": "CONFINED",
+          "workTitle": "점검 30",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1031,
+          "permitNo": "CP-202610-0031",
+          "permitType": "CONFINED",
+          "workTitle": "점검 31",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1032,
+          "permitNo": "CP-202610-0032",
+          "permitType": "CONFINED",
+          "workTitle": "점검 32",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1033,
+          "permitNo": "CP-202610-0033",
+          "permitType": "CONFINED",
+          "workTitle": "점검 33",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1034,
+          "permitNo": "CP-202610-0034",
+          "permitType": "CONFINED",
+          "workTitle": "점검 34",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1035,
+          "permitNo": "CP-202610-0035",
+          "permitType": "CONFINED",
+          "workTitle": "점검 35",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1036,
+          "permitNo": "CP-202610-0036",
+          "permitType": "CONFINED",
+          "workTitle": "점검 36",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1037,
+          "permitNo": "CP-202610-0037",
+          "permitType": "CONFINED",
+          "workTitle": "점검 37",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1038,
+          "permitNo": "CP-202610-0038",
+          "permitType": "CONFINED",
+          "workTitle": "점검 38",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1039,
+          "permitNo": "CP-202610-0039",
+          "permitType": "CONFINED",
+          "workTitle": "점검 39",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1040,
+          "permitNo": "CP-202610-0040",
+          "permitType": "CONFINED",
+          "workTitle": "점검 40",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1041,
+          "permitNo": "CP-202610-0041",
+          "permitType": "CONFINED",
+          "workTitle": "점검 41",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1042,
+          "permitNo": "CP-202610-0042",
+          "permitType": "CONFINED",
+          "workTitle": "점검 42",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1043,
+          "permitNo": "CP-202610-0043",
+          "permitType": "CONFINED",
+          "workTitle": "점검 43",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1044,
+          "permitNo": "CP-202610-0044",
+          "permitType": "CONFINED",
+          "workTitle": "점검 44",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1045,
+          "permitNo": "CP-202610-0045",
+          "permitType": "CONFINED",
+          "workTitle": "점검 45",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1046,
+          "permitNo": "CP-202610-0046",
+          "permitType": "CONFINED",
+          "workTitle": "점검 46",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1047,
+          "permitNo": "CP-202610-0047",
+          "permitType": "CONFINED",
+          "workTitle": "점검 47",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1048,
+          "permitNo": "CP-202610-0048",
+          "permitType": "CONFINED",
+          "workTitle": "점검 48",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1049,
+          "permitNo": "CP-202610-0049",
+          "permitType": "CONFINED",
+          "workTitle": "점검 49",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1050,
+          "permitNo": "CP-202610-0050",
+          "permitType": "CONFINED",
+          "workTitle": "점검 50",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1051,
+          "permitNo": "CP-202610-0051",
+          "permitType": "CONFINED",
+          "workTitle": "점검 51",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1052,
+          "permitNo": "CP-202610-0052",
+          "permitType": "CONFINED",
+          "workTitle": "점검 52",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1053,
+          "permitNo": "CP-202610-0053",
+          "permitType": "CONFINED",
+          "workTitle": "점검 53",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1054,
+          "permitNo": "CP-202610-0054",
+          "permitType": "CONFINED",
+          "workTitle": "점검 54",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1055,
+          "permitNo": "CP-202610-0055",
+          "permitType": "CONFINED",
+          "workTitle": "점검 55",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1056,
+          "permitNo": "CP-202610-0056",
+          "permitType": "CONFINED",
+          "workTitle": "점검 56",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1057,
+          "permitNo": "CP-202610-0057",
+          "permitType": "CONFINED",
+          "workTitle": "점검 57",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1058,
+          "permitNo": "CP-202610-0058",
+          "permitType": "CONFINED",
+          "workTitle": "점검 58",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1059,
+          "permitNo": "CP-202610-0059",
+          "permitType": "CONFINED",
+          "workTitle": "점검 59",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1060,
+          "permitNo": "CP-202610-0060",
+          "permitType": "CONFINED",
+          "workTitle": "점검 60",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1061,
+          "permitNo": "CP-202610-0061",
+          "permitType": "CONFINED",
+          "workTitle": "점검 61",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1062,
+          "permitNo": "CP-202610-0062",
+          "permitType": "CONFINED",
+          "workTitle": "점검 62",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1063,
+          "permitNo": "CP-202610-0063",
+          "permitType": "CONFINED",
+          "workTitle": "점검 63",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1064,
+          "permitNo": "CP-202610-0064",
+          "permitType": "CONFINED",
+          "workTitle": "점검 64",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1065,
+          "permitNo": "CP-202610-0065",
+          "permitType": "CONFINED",
+          "workTitle": "점검 65",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1066,
+          "permitNo": "CP-202610-0066",
+          "permitType": "CONFINED",
+          "workTitle": "점검 66",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1067,
+          "permitNo": "CP-202610-0067",
+          "permitType": "CONFINED",
+          "workTitle": "점검 67",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1068,
+          "permitNo": "CP-202610-0068",
+          "permitType": "CONFINED",
+          "workTitle": "점검 68",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1069,
+          "permitNo": "CP-202610-0069",
+          "permitType": "CONFINED",
+          "workTitle": "점검 69",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1070,
+          "permitNo": "CP-202610-0070",
+          "permitType": "CONFINED",
+          "workTitle": "점검 70",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1071,
+          "permitNo": "CP-202610-0071",
+          "permitType": "CONFINED",
+          "workTitle": "점검 71",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1072,
+          "permitNo": "CP-202610-0072",
+          "permitType": "CONFINED",
+          "workTitle": "점검 72",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1073,
+          "permitNo": "CP-202610-0073",
+          "permitType": "CONFINED",
+          "workTitle": "점검 73",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1074,
+          "permitNo": "CP-202610-0074",
+          "permitType": "CONFINED",
+          "workTitle": "점검 74",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1075,
+          "permitNo": "CP-202610-0075",
+          "permitType": "CONFINED",
+          "workTitle": "점검 75",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1076,
+          "permitNo": "CP-202610-0076",
+          "permitType": "CONFINED",
+          "workTitle": "점검 76",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1077,
+          "permitNo": "CP-202610-0077",
+          "permitType": "CONFINED",
+          "workTitle": "점검 77",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1078,
+          "permitNo": "CP-202610-0078",
+          "permitType": "CONFINED",
+          "workTitle": "점검 78",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1079,
+          "permitNo": "CP-202610-0079",
+          "permitType": "CONFINED",
+          "workTitle": "점검 79",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1080,
+          "permitNo": "CP-202610-0080",
+          "permitType": "CONFINED",
+          "workTitle": "점검 80",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1081,
+          "permitNo": "CP-202610-0081",
+          "permitType": "CONFINED",
+          "workTitle": "점검 81",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1082,
+          "permitNo": "CP-202610-0082",
+          "permitType": "CONFINED",
+          "workTitle": "점검 82",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1083,
+          "permitNo": "CP-202610-0083",
+          "permitType": "CONFINED",
+          "workTitle": "점검 83",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1084,
+          "permitNo": "CP-202610-0084",
+          "permitType": "CONFINED",
+          "workTitle": "점검 84",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1085,
+          "permitNo": "CP-202610-0085",
+          "permitType": "CONFINED",
+          "workTitle": "점검 85",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1086,
+          "permitNo": "CP-202610-0086",
+          "permitType": "CONFINED",
+          "workTitle": "점검 86",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1087,
+          "permitNo": "CP-202610-0087",
+          "permitType": "CONFINED",
+          "workTitle": "점검 87",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1088,
+          "permitNo": "CP-202610-0088",
+          "permitType": "CONFINED",
+          "workTitle": "점검 88",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1089,
+          "permitNo": "CP-202610-0089",
+          "permitType": "CONFINED",
+          "workTitle": "점검 89",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1090,
+          "permitNo": "CP-202610-0090",
+          "permitType": "CONFINED",
+          "workTitle": "점검 90",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1091,
+          "permitNo": "CP-202610-0091",
+          "permitType": "CONFINED",
+          "workTitle": "점검 91",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1092,
+          "permitNo": "CP-202610-0092",
+          "permitType": "CONFINED",
+          "workTitle": "점검 92",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1093,
+          "permitNo": "CP-202610-0093",
+          "permitType": "CONFINED",
+          "workTitle": "점검 93",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1094,
+          "permitNo": "CP-202610-0094",
+          "permitType": "CONFINED",
+          "workTitle": "점검 94",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1095,
+          "permitNo": "CP-202610-0095",
+          "permitType": "CONFINED",
+          "workTitle": "점검 95",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1096,
+          "permitNo": "CP-202610-0096",
+          "permitType": "CONFINED",
+          "workTitle": "점검 96",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1097,
+          "permitNo": "CP-202610-0097",
+          "permitType": "CONFINED",
+          "workTitle": "점검 97",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1098,
+          "permitNo": "CP-202610-0098",
+          "permitType": "CONFINED",
+          "workTitle": "점검 98",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        },
+        {
+          "permitId": 1099,
+          "permitNo": "CP-202610-0099",
+          "permitType": "CONFINED",
+          "workTitle": "점검 99",
+          "location": "3구역",
+          "approvedAt": "2026-10-14T11:20:00",
+          "missingItems": [
+            "O2"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "type": "PERMIT",
+          "id": 1000
+        },
+        {
+          "type": "PERMIT",
+          "id": 1001
+        },
+        {
+          "type": "PERMIT",
+          "id": 1002
+        },
+        {
+          "type": "PERMIT",
+          "id": 1003
+        },
+        {
+          "type": "PERMIT",
+          "id": 1004
+        },
+        {
+          "type": "PERMIT",
+          "id": 1005
+        },
+        {
+          "type": "PERMIT",
+          "id": 1006
+        },
+        {
+          "type": "PERMIT",
+          "id": 1007
+        },
+        {
+          "type": "PERMIT",
+          "id": 1008
+        },
+        {
+          "type": "PERMIT",
+          "id": 1009
+        },
+        {
+          "type": "PERMIT",
+          "id": 1010
+        },
+        {
+          "type": "PERMIT",
+          "id": 1011
+        },
+        {
+          "type": "PERMIT",
+          "id": 1012
+        },
+        {
+          "type": "PERMIT",
+          "id": 1013
+        },
+        {
+          "type": "PERMIT",
+          "id": 1014
+        },
+        {
+          "type": "PERMIT",
+          "id": 1015
+        },
+        {
+          "type": "PERMIT",
+          "id": 1016
+        },
+        {
+          "type": "PERMIT",
+          "id": 1017
+        },
+        {
+          "type": "PERMIT",
+          "id": 1018
+        },
+        {
+          "type": "PERMIT",
+          "id": 1019
+        },
+        {
+          "type": "PERMIT",
+          "id": 1020
+        },
+        {
+          "type": "PERMIT",
+          "id": 1021
+        },
+        {
+          "type": "PERMIT",
+          "id": 1022
+        },
+        {
+          "type": "PERMIT",
+          "id": 1023
+        },
+        {
+          "type": "PERMIT",
+          "id": 1024
+        },
+        {
+          "type": "PERMIT",
+          "id": 1025
+        },
+        {
+          "type": "PERMIT",
+          "id": 1026
+        },
+        {
+          "type": "PERMIT",
+          "id": 1027
+        },
+        {
+          "type": "PERMIT",
+          "id": 1028
+        },
+        {
+          "type": "PERMIT",
+          "id": 1029
+        },
+        {
+          "type": "PERMIT",
+          "id": 1030
+        },
+        {
+          "type": "PERMIT",
+          "id": 1031
+        },
+        {
+          "type": "PERMIT",
+          "id": 1032
+        },
+        {
+          "type": "PERMIT",
+          "id": 1033
+        },
+        {
+          "type": "PERMIT",
+          "id": 1034
+        },
+        {
+          "type": "PERMIT",
+          "id": 1035
+        },
+        {
+          "type": "PERMIT",
+          "id": 1036
+        },
+        {
+          "type": "PERMIT",
+          "id": 1037
+        },
+        {
+          "type": "PERMIT",
+          "id": 1038
+        },
+        {
+          "type": "PERMIT",
+          "id": 1039
+        },
+        {
+          "type": "PERMIT",
+          "id": 1040
+        },
+        {
+          "type": "PERMIT",
+          "id": 1041
+        },
+        {
+          "type": "PERMIT",
+          "id": 1042
+        },
+        {
+          "type": "PERMIT",
+          "id": 1043
+        },
+        {
+          "type": "PERMIT",
+          "id": 1044
+        },
+        {
+          "type": "PERMIT",
+          "id": 1045
+        },
+        {
+          "type": "PERMIT",
+          "id": 1046
+        },
+        {
+          "type": "PERMIT",
+          "id": 1047
+        },
+        {
+          "type": "PERMIT",
+          "id": 1048
+        },
+        {
+          "type": "PERMIT",
+          "id": 1049
+        },
+        {
+          "type": "PERMIT",
+          "id": 1050
+        },
+        {
+          "type": "PERMIT",
+          "id": 1051
+        },
+        {
+          "type": "PERMIT",
+          "id": 1052
+        },
+        {
+          "type": "PERMIT",
+          "id": 1053
+        },
+        {
+          "type": "PERMIT",
+          "id": 1054
+        },
+        {
+          "type": "PERMIT",
+          "id": 1055
+        },
+        {
+          "type": "PERMIT",
+          "id": 1056
+        },
+        {
+          "type": "PERMIT",
+          "id": 1057
+        },
+        {
+          "type": "PERMIT",
+          "id": 1058
+        },
+        {
+          "type": "PERMIT",
+          "id": 1059
+        },
+        {
+          "type": "PERMIT",
+          "id": 1060
+        },
+        {
+          "type": "PERMIT",
+          "id": 1061
+        },
+        {
+          "type": "PERMIT",
+          "id": 1062
+        },
+        {
+          "type": "PERMIT",
+          "id": 1063
+        },
+        {
+          "type": "PERMIT",
+          "id": 1064
+        },
+        {
+          "type": "PERMIT",
+          "id": 1065
+        },
+        {
+          "type": "PERMIT",
+          "id": 1066
+        },
+        {
+          "type": "PERMIT",
+          "id": 1067
+        },
+        {
+          "type": "PERMIT",
+          "id": 1068
+        },
+        {
+          "type": "PERMIT",
+          "id": 1069
+        },
+        {
+          "type": "PERMIT",
+          "id": 1070
+        },
+        {
+          "type": "PERMIT",
+          "id": 1071
+        },
+        {
+          "type": "PERMIT",
+          "id": 1072
+        },
+        {
+          "type": "PERMIT",
+          "id": 1073
+        },
+        {
+          "type": "PERMIT",
+          "id": 1074
+        },
+        {
+          "type": "PERMIT",
+          "id": 1075
+        },
+        {
+          "type": "PERMIT",
+          "id": 1076
+        },
+        {
+          "type": "PERMIT",
+          "id": 1077
+        },
+        {
+          "type": "PERMIT",
+          "id": 1078
+        },
+        {
+          "type": "PERMIT",
+          "id": 1079
+        },
+        {
+          "type": "PERMIT",
+          "id": 1080
+        },
+        {
+          "type": "PERMIT",
+          "id": 1081
+        },
+        {
+          "type": "PERMIT",
+          "id": 1082
+        },
+        {
+          "type": "PERMIT",
+          "id": 1083
+        },
+        {
+          "type": "PERMIT",
+          "id": 1084
+        },
+        {
+          "type": "PERMIT",
+          "id": 1085
+        },
+        {
+          "type": "PERMIT",
+          "id": 1086
+        },
+        {
+          "type": "PERMIT",
+          "id": 1087
+        },
+        {
+          "type": "PERMIT",
+          "id": 1088
+        },
+        {
+          "type": "PERMIT",
+          "id": 1089
+        },
+        {
+          "type": "PERMIT",
+          "id": 1090
+        },
+        {
+          "type": "PERMIT",
+          "id": 1091
+        },
+        {
+          "type": "PERMIT",
+          "id": 1092
+        },
+        {
+          "type": "PERMIT",
+          "id": 1093
+        },
+        {
+          "type": "PERMIT",
+          "id": 1094
+        },
+        {
+          "type": "PERMIT",
+          "id": 1095
+        },
+        {
+          "type": "PERMIT",
+          "id": 1096
+        },
+        {
+          "type": "PERMIT",
+          "id": 1097
+        },
+        {
+          "type": "PERMIT",
+          "id": 1098
+        },
+        {
+          "type": "PERMIT",
+          "id": 1099
+        }
+      ],
+      "total": 130,
+      "truncated": true
+    }
+  ]
+}

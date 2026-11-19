@@ -1,0 +1,69 @@
+{
+  "reportId": 7,
+  "siteId": 1,
+  "dateFrom": "2026-10-01",
+  "dateTo": "2026-10-31",
+  "items": [
+    {
+      "queryType": "risk_assessment_rate",
+      "title": "위험성평가 실시율",
+      "stats": {
+        "works": 0,
+        "written": 0,
+        "approved": 0,
+        "missing": 0,
+        "rate": null,
+        "approvedRate": null
+      },
+      "records": [],
+      "evidence": []
+    },
+    {
+      "queryType": "permit_approval_statistics",
+      "title": "작업허가 승인 현황",
+      "stats": {
+        "permits": 0,
+        "requested": 0,
+        "approved": 0,
+        "rejected": 0,
+        "canceled": 0,
+        "blocked": 0,
+        "approvalRate": null
+      },
+      "records": [],
+      "evidence": []
+    },
+    {
+      "queryType": "corrective_action_rate",
+      "title": "지적사항 조치율",
+      "stats": {
+        "actions": 0,
+        "completed": 0,
+        "verified": 0,
+        "open": 0,
+        "overdue": 0,
+        "completionRate": null
+      },
+      "records": [],
+      "evidence": []
+    },
+    {
+      "queryType": "blocked_records",
+      "title": "차단 기록",
+      "stats": {
+        "count": 0
+      },
+      "records": [],
+      "evidence": []
+    },
+    {
+      "queryType": "missing_measurements",
+      "title": "측정값 없이 승인된 허가",
+      "stats": {
+        "count": 0
+      },
+      "records": [],
+      "evidence": []
+    }
+  ]
+}
