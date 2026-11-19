@@ -77,7 +77,7 @@ class Runner:
         return self.generate(system, user)
 
 
-ADAPTER_NAME = "plan_brief"  # 서버(llm_work_register.ADAPTER_NAME)와 같은 이름
+ADAPTER_NAME = "work_register"  # 서버(llm_work_register.ADAPTER_NAME)와 같은 이름
 
 
 def check_adapter(adapter: str, model_id: str) -> dict[str, Any]:
