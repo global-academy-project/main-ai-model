@@ -148,7 +148,7 @@ class EvidenceRef(CamelModel):
 
 class ComposeSentence(CamelModel):
     text: str
-    source: Literal["TEMPLATE"] = "TEMPLATE"
+    source: Literal["TEMPLATE", "LLM"] = "TEMPLATE"
     evidence: list[EvidenceRef] = Field(default_factory=list)
 
 

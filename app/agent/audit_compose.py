@@ -125,9 +125,32 @@ def _build_all(request: AuditComposeInput, run: _Run) -> dict[str, _Built]:
     return built
 
 
-def compose_audit_report(request: AuditComposeInput, *, now: datetime | None = None) -> AuditComposeResult:
+def compose_audit_report(
+    request: AuditComposeInput,
+    *,
+    now: datetime | None = None,
+    narrative_generator: Callable[[ComposeItem], list[str]] | None = None,
+) -> AuditComposeResult:
     run = _Run()
     built = _build_all(request, run)
+
+    # P2는 선택 기능이다. 후보 생성 실패 시 P1 템플릿을 유지한다.
+    if narrative_generator is not None:
+        for entry in built.values():
+            item = entry.item
+            if item.state == "UNAVAILABLE":
+                continue
+            try:
+                candidates = narrative_generator(item)
+                if not candidates or any(not isinstance(text, str) or not text.strip() for text in candidates):
+                    raise ValueError("LLM 문장 후보가 비어 있거나 올바르지 않습니다.")
+                item_allowed = _allowed_item_numbers(item)
+                if any(unexpected_numbers(text, item_allowed) for text in candidates):
+                    run.note("NARRATIVE_REPLACED", "WARN", f"{item.area}: LLM 문장 수치가 해당 항목 facts와 달라 템플릿을 유지함")
+                    continue
+                item.sentences = [ComposeSentence(text=text.strip(), source="LLM") for text in candidates]
+            except Exception as exc:
+                run.note("NARRATIVE_FALLBACK", "WARN", f"{item.area}: LLM 문장 생성 실패, 템플릿 문장을 사용함 ({type(exc).__name__})")
 
     allowed = _allowed_numbers(built)
     _check_item_sentences(built, allowed, run)
@@ -629,6 +652,30 @@ def _allowed_numbers(built: dict[str, _Built]) -> set[str]:
     return allowed
 
 
+def _allowed_item_numbers(item: ComposeItem) -> set[str]:
+    """LLM 항목 문장이 해당 항목 facts·법적 근거에 포함된 숫자만 쓰도록 제한한다."""
+    facts = item.facts
+    allowed = {
+        fmt(value)
+        for value in (facts.denominator, facts.numerator, facts.total, facts.shown, facts.rate_pct)
+        if value is not None
+    }
+    allowed.update(fmt(value.value) for value in facts.values)
+    for basis in item.basis:
+        if basis.legal_basis:
+            allowed.update(numbers_in(basis.legal_basis))
+    if item.action_status:
+        allowed.update(fmt(value) for value in (
+            item.action_status.open,
+            item.action_status.completed,
+            item.action_status.verified,
+            item.action_status.overdue,
+        ))
+    if item.records.total is not None:
+        allowed.add(fmt(item.records.total))
+    return allowed
+
+
 def _fallback_sentence(item: ComposeItem) -> str:
     """대조에 실패한 문장 대신 쓰는 문장: `facts` 값만 그대로 나열한다."""
     parts = [f"{fv.label} {fmt(fv.value)}{fv.unit}" for fv in item.facts.values]
@@ -641,6 +688,7 @@ def _check_item_sentences(built: dict[str, _Built], allowed: set[str], run: _Run
             if unexpected_numbers(sentence.text, allowed):
                 run.note("NARRATIVE_REPLACED", "WARN", f"{b.item.area}: 문장 속 숫자가 집계 값과 달라 값 나열로 바꿈")
                 sentence.text = _fallback_sentence(b.item)
+                sentence.source = "TEMPLATE"
 
 
 # ---------------------------------------------------------------- 종합 내역
