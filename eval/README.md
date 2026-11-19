@@ -38,3 +38,36 @@
 - 채점: `python -m scripts.eval_rule_input_extract eval/rule_input_extract_v2.json --show`
 - 문항을 고치면 `python -m pytest tests/test_extract_gold_v2.py`로 형식을 먼저 검사한다.
 - Spring 의 `gold-v1.json`(20문항)은 사전 추출 회귀 테스트용이라 그대로 둔다 (LLM 평가에는 v2 를 쓴다).
+
+---
+
+# 아차사고 5축 태깅 정답 세트
+
+`near_miss_tag_v1.json`: 아차사고 보고 문장 → 사고 유형·위험요인·작업 유형·물질 태깅 평가용 후보 세트 50문항.
+
+| 필드 | 뜻 |
+| --- | --- |
+| `id` | 문항 번호 |
+| `tag` | 문항 분류 표시 |
+| `title` | 아차사고 제목 |
+| `description` | 발생 상황 |
+| `immediateAction` | 즉시 조치 |
+| `workType` | 관련 작업에서 전달된 작업 유형. 없으면 `null` |
+| `gold` | 기대 태그 집합 |
+| `status` | `candidate` = 팀 또는 현장 전문가 확인 전 |
+| `note` | 판단 근거 또는 주의 사항 |
+
+평가 전 다음 사항을 확인한다.
+
+- `ACCIDENT_TYPE`, `HAZARD`, `WORK_TYPE`, `SUBSTANCE`만 채점하고 `SEVERITY`는 제외한다.
+- 판단이 갈리는 위험요인은 팀 기준으로 한 값으로 확정한 뒤 `gold`를 수정한다.
+- 실제 틀렸던 현장 보고 문장이 추가되면 생성 문장보다 우선한다.
+- 평가 세트 문장은 어댑터 학습 데이터와 겹치지 않게 유지한다.
+
+채점 실행:
+
+```powershell
+python -m scripts.eval_near_miss_tag eval/near_miss_tag_v1.json
+python -m scripts.eval_near_miss_tag eval/near_miss_tag_v1.json --rules-only
+python -m scripts.eval_near_miss_tag eval/near_miss_tag_v1.json --show
+```
