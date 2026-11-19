@@ -1,8 +1,40 @@
 from app.near_miss.schemas import NearMissTagRequest
 from app.near_miss.service import tag_near_miss
-from app.llm.llm_fake import FakeLLMClient
+from app.llm.llm_fake import FakeLLMClient, text_response
 from app.exceptions import LLMError
 from app.llm.llm_base import LLMClient
+import json
+
+
+def test_near_miss_llm_receives_code_descriptions_and_missing_axes_only():
+    from app.near_miss.llm import suggest_missing_tags
+    from app.near_miss.schemas import NearMissTagSuggestion
+
+    llm = FakeLLMClient([text_response(
+        '{"hazard":["ELECTRICAL","CHEMICAL"],"workType":["ELECTRICAL"]}'
+    )])
+    existing = [
+        NearMissTagSuggestion(axis="SEVERITY", value="NEAR_MISS", confidence=1.0),
+        NearMissTagSuggestion(axis="ACCIDENT_TYPE", value="ELECTRIC", confidence=0.8),
+    ]
+
+    tags, model = suggest_missing_tags(
+        llm,
+        request_text="젖은 손으로 분전반 차단기를 조작하다 찌릿했다",
+        existing=existing,
+    )
+
+    prompt = json.loads(llm.calls[0]["messages"][0].content)
+    assert prompt["missing_axes"] == ["HAZARD", "WORK_TYPE", "SUBSTANCE"]
+    assert "분전반" in prompt["allowed_codes"]["hazard"]["ELECTRICAL"]
+    assert "workType" in prompt["allowed_codes"]
+    assert "accidentType" not in prompt["allowed_codes"]
+    assert "사다리" in prompt["allowed_codes"]["workType"]["HEIGHT"]
+    assert model == "fake"
+    hazard_tags = [tag for tag in tags if tag.axis == "HAZARD"]
+    work_tags = [tag for tag in tags if tag.axis == "WORK_TYPE"]
+    assert [tag.value for tag in hazard_tags] == ["ELECTRICAL"]
+    assert [tag.value for tag in work_tags] == ["ELECTRICAL"]
 
 
 def test_near_miss_rule_tagging_uses_scenario_c_shape():
@@ -19,7 +51,7 @@ def test_near_miss_rule_tagging_uses_scenario_c_shape():
     response = tag_near_miss(request, FakeLLMClient())
 
     assert response.tagging_source == "near_miss_rules"
-    assert response.tagging_version == "nm-1"
+    assert response.tagging_version == "nm-2"
     assert {"axis": "SEVERITY", "value": "NEAR_MISS"} in [
         {"axis": tag.axis, "value": tag.value} for tag in response.tags
     ]
@@ -52,7 +84,7 @@ def test_near_miss_llm_error_keeps_rule_tags():
     response = tag_near_miss(request, FailingNearMissLLM())
 
     assert response.tagging_source == "near_miss_rules"
-    assert response.tagging_version == "nm-1"
+    assert response.tagging_version == "nm-2"
     assert response.model is None
     assert {"axis": "SEVERITY", "value": "NEAR_MISS"} in [
         {"axis": tag.axis, "value": tag.value} for tag in response.tags
