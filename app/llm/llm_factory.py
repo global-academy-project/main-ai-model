@@ -16,8 +16,8 @@ def build_llm_client(
     if settings.is_engine_blocked(engine):
         raise EngineBlockedError(engine)
 
-    if problem := settings.engine_config_problem(engine):
-        raise LLMConfigError(problem, engine=engine)
+    # if problem := settings.engine_config_problem(engine):
+    #     raise LLMConfigError(problem, engine=engine)
 
     if model_id is not None and engine not in MODEL_ID_ENGINES:
         raise LLMConfigError("이 엔진은 모델 지정을 지원하지 않습니다.", engine=engine)

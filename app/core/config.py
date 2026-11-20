@@ -61,10 +61,10 @@ class Settings(BaseSettings):
         ai_timeout_seconds: AI 호출 제한 시간(초).
         ai_max_output_tokens: AI 응답의 최대 출력 토큰 수.
     """
-    network_env: Literal["OPEN", "CLOSED"]
+    network_env: Literal["OPEN", "CLOSED"] = "CLOSED"
 
-    openai_api_key: SecretStr | None = None
-    openai_model: str | None = None
+    # openai_api_key: SecretStr | None = None
+    # openai_model: str | None = None
 
     ai_timeout_seconds: float = Field(
         default=30.0,
@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     # 감사보고서 P2 문장 생성. False면 P1 템플릿 문장을 그대로 사용한다.
     audit_narrative_llm: bool = False
 
-    check_rules_tool: Literal["MOCK", "SPRING"]
+    check_rules_tool: Literal["MOCK", "SPRING"] = "SPRING"
     internal_api_base_url: str | None = None
     internal_api_token: SecretStr | None = None
 
@@ -166,20 +166,21 @@ class Settings(BaseSettings):
         """폐쇄망에서 외부 엔진을 쓰려는가."""
         return engine in EXTERNAL_ENGINES and self.network_env == "CLOSED"
 
-    def engine_config_problem(self, engine: Engine) -> str | None:
-        """필수 설정이 빠졌으면 사유 문자열, 괜찮으면 None."""
-        if engine == "OPENAI":
-            if self.openai_api_key is None:
-                return "OPENAI_API_KEY가 필요합니다."
-            if not self.openai_model:
-                return "OPENAI_MODEL이 필요합니다."
-        return None
+    # def engine_config_problem(self, engine: Engine) -> str | None:
+    #     """필수 설정이 빠졌으면 사유 문자열, 괜찮으면 None."""
+    #     if engine == "OPENAI":
+    #         if self.openai_api_key is None:
+    #             return "OPENAI_API_KEY가 필요합니다."
+    #         if not self.openai_model:
+    #             return "OPENAI_MODEL이 필요합니다."
+    #     return None
 
     def engine_problem(self, engine: Engine) -> str | None:
         """기동 검증용: 막힘과 설정 문제를 합쳐 사유 하나로."""
         if self.is_engine_blocked(engine):
             return f"폐쇄망에서는 {engine}을(를) 사용할 수 없습니다."
-        return self.engine_config_problem(engine)
+        # return self.engine_config_problem(engine)
+        return None
 
     def scenario_binding_problem(self, key: str, binding: dict[str, str]) -> str | None:
         """SCENARIO_ENGINES 항목 하나의 문제. 없으면 None."""
