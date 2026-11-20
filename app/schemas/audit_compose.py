@@ -181,7 +181,7 @@ class ComposeItem(CamelModel):
 
 
 class ComposeGroup(CamelModel):
-    no: str
+    doc_no: str
     seq: int
     area: str
     items: list[ComposeItem] = Field(default_factory=list)

@@ -162,7 +162,7 @@ def compose_audit_report(
     for no, area, query_types in GROUPS:
         groups.append(
             ComposeGroup(
-                no=f"AR-{request.site_id}-{month}-{no:02d}",
+                doc_no=f"AR-{request.site_id}-{month}-{no:02d}",
                 seq=no,
                 area=area,
                 items=[built[q].item for q in query_types],

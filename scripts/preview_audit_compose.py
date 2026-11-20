@@ -64,7 +64,7 @@ def render_markdown(result: AuditComposeResult) -> str:
 
     add(f"## {_ROMAN[3]}. 항목별 점검 결과")
     for g in result.groups:
-        add(f"### {g.area} ({g.no})")
+        add(f"### {g.area} ({g.doc_no})")
         for item in g.items:
             add(f"○ {item.area} [{item.state_label}]")
             for sentence in item.sentences:
