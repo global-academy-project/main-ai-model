@@ -537,7 +537,7 @@ def client():
 
 
 def test_route_returns_camel_case_data(client):
-    resp = client.post("/api/v1/agent/audit-report/compose", json=load("normal"))
+    resp = client.post("/api/v1/agent/audit-report", json=load("normal"))
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
@@ -572,7 +572,7 @@ def test_legacy_audit_report_route_returns_composer_contract_and_ignores_snapsho
 
 
 def test_route_rejects_bad_body(client):
-    resp = client.post("/api/v1/agent/audit-report/compose", json={"reportId": 1})
+    resp = client.post("/api/v1/agent/audit-report", json={"reportId": 1})
     assert resp.status_code == 422
 
 
