@@ -7,7 +7,6 @@ from app.agent.scenario.scenario_handlers import load_chat_scenarios
 from app.api import health_router
 from app.api.v1.agent.agent_run import router as agent_run_router
 from app.api.v1.agent.near_miss_tag import router as near_miss_tag_router
-from app.api.v1.agent.audit_report import router as audit_report_router
 from app.api.v1.agent.audit_compose import router as audit_compose_router
 from app.api.v1.agent.record_query import router as record_query_router
 from app.api.v1.agent.rule_input_extract import router as rule_input_extract_router
@@ -67,7 +66,6 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(agent_run_router)
     app.include_router(near_miss_tag_router)
-    app.include_router(audit_report_router)
     app.include_router(audit_compose_router)
     app.include_router(record_query_router)
     app.include_router(rule_input_extract_router)

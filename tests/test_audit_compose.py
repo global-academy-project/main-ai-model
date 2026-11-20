@@ -135,7 +135,7 @@ def test_normal_structure_and_order():
     assert r.status == "COMPLETE"
     assert r.meta.generated_at == "2026-11-19T15:00:00+09:00"
     assert [g.seq for g in r.groups] == [1, 2, 3]
-    assert [g.no for g in r.groups] == ["AR-1-202610-01", "AR-1-202610-02", "AR-1-202610-03"]
+    assert [g.doc_no for g in r.groups] == ["AR-1-202610-01", "AR-1-202610-02", "AR-1-202610-03"]
     assert [[i.query_type for i in g.items] for g in r.groups] == [
         ["risk_assessment_rate", "permit_approval_statistics"],
         ["near_miss_receipt", "near_miss_action_link"],
@@ -546,8 +546,29 @@ def test_route_returns_camel_case_data(client):
     item = data["groups"][0]["items"][0]
     assert item["queryType"] == "risk_assessment_rate" and item["stateLabel"] == "확인 필요"
     assert data["groups"][0]["responderOpinion"] is None
+    assert data["groups"][0]["docNo"] == "AR-1-202610-01"
+    assert "no" not in data["groups"][0]
     assert data["overall"]["reviewNeeded"][1]["recordLabels"] == ["CP-202610-0002"]
     assert data["summary"]["groups"][0]["rows"][0]["ratePct"] == 16.7
+
+
+def test_legacy_audit_report_route_returns_composer_contract_and_ignores_snapshot(client):
+    body = load("normal")
+    body["dataSnapshot"] = {"legacy": True}
+
+    resp = client.post("/api/v1/agent/audit-report", json=body)
+
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["formType"] == "AUDIT_REPORT"
+    assert data["status"] == "COMPLETE"
+    assert "overallVerification" not in data
+    assert "dataSnapshot" not in data
+    assert data["groups"][0]["docNo"] == "AR-1-202610-01"
+    first_item = data["groups"][0]["items"][0]
+    assert first_item["sentences"]
+    assert all(sentence["source"] in {"TEMPLATE", "LLM"} for sentence in first_item["sentences"])
+    assert "verification" not in first_item
 
 
 def test_route_rejects_bad_body(client):

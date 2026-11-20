@@ -1,7 +1,7 @@
-"""감사 대응 보고서 구성기 전용 API.
+"""감사 대응 보고서 구성기 API.
 
-기존 `/api/v1/agent/audit-report`(D)와 나란히 두며, 서로 호출하지 않는다.
- Spring 백엔드 호출은 아직 연결하지 않았다.
+기존 `/api/v1/agent/audit-report` 주소를 유지하고, `/compose`는 호환용 별칭으로 제공한다.
+집계는 호출자가 전달하며 이 API는 결과를 구성하고 검증한다.
 """
 
 from fastapi import APIRouter, Request
@@ -15,7 +15,8 @@ from app.schemas.base_schemas import DataResponse
 router = APIRouter(prefix="/api/v1/agent", tags=["audit-compose"])
 
 
-@router.post("/audit-report/compose", response_model=DataResponse[AuditComposeResult])
+@router.post("/audit-report", response_model=DataResponse[AuditComposeResult])
+@router.post("/audit-report/compose", response_model=DataResponse[AuditComposeResult], include_in_schema=False)
 def audit_report_compose(
     body: AuditComposeInput,
     request: Request,
