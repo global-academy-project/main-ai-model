@@ -10,15 +10,15 @@ from app.llm.llm_base import LLMClient
 from app.schemas.audit_report import AuditReportInput, AuditReportResult
 from app.schemas.base_schemas import DataResponse
 
-router = APIRouter(prefix="/api/v1/agent", tags=["audit-report"])
-AuditReportLLM = Annotated[LLMClient, Depends(audit_report_llm)]
+# router = APIRouter(prefix="/api/v1/agent", tags=["audit-report"])
+# AuditReportLLM = Annotated[LLMClient, Depends(audit_report_llm)]
 
 
-@router.post("/audit-report", response_model=DataResponse[AuditReportResult])
-def audit_report(
-    body: AuditReportInput,
-    llm: AuditReportLLM,
-) -> DataResponse[AuditReportResult]:
-    """SQL 집계는 수행하지 않고, 서버가 전달한 stats를 요약·검증한다."""
-    result = AuditReportAgent(llm=llm).run(body)
-    return DataResponse(data=result)
+# @router.post("/audit-report", response_model=DataResponse[AuditReportResult])
+# def audit_report(
+#     body: AuditReportInput,
+#     llm: AuditReportLLM,
+# ) -> DataResponse[AuditReportResult]:
+#     """SQL 집계는 수행하지 않고, 서버가 전달한 stats를 요약·검증한다."""
+#     result = AuditReportAgent(llm=llm).run(body)
+#     return DataResponse(data=result)

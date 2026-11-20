@@ -17,10 +17,9 @@ EXTERNAL_ENGINES: frozenset[str] = frozenset({"OPENAI"})
 _SCENARIO_KEYS = frozenset({"router", "default", "A", "B", "C", "D", "E", "F"})
 _BINDING_FIELDS = frozenset({"engine", "model_id"})
 
-# SCENARIO_MODELS 표 아래, class Settings 위
-# 통합 채팅창에서 분류할 시나리오 (글자, 쉼표로). F(소규모 사업장 안내)는 구현하지 않기로 해서 기본에서 뺐다 (11/19).
-# F를 쓰려면 CHAT_SCENARIOS=A,E,F (F를 넣으려면 A도 함께). D·E는 처리기를 붙일 때 자기 글자를 더한다.
+
 CHAT_SCENARIOS = "A,E"
+
 
 # ── 시나리오별 LLM 모델 선택표 ──────────────────────────────────────────────
 # 각 담당자는 자기 시나리오 줄만 고친다. 고친 뒤 서버를 다시 띄우면 적용된다.
@@ -43,7 +42,7 @@ SCENARIO_MODELS: dict[str, dict[str, str]] = {
     "B": {"engine": "CONFINED_SPACE_GATE", "model_id": "Qwen/Qwen3-0.6B"},  # C · 밀폐공간 작업 → 기준 미달 차단 (문장 추출. E와 같은 1.7B를 같이 씀, 어댑터 extract)
     "C": {"engine": "NEAR_MISS_WARNING", "model_id": "Qwen/Qwen2.5-1.5B-Instruct"},  # A · 아차사고 보고 → 5축 태깅
     "D": {"engine": "DAILY_SAFETY_LOG", "model_id": "Qwen/Qwen3-0.6B"},  # D · 마감 현황·TBM·안전일지 기록 질의
-    "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-0.6B"},  # D · 감사 대응 질의
+    "E": {"engine": "AUDIT_QUERY", "model_id": "Qwen/Qwen3-1.7B"},  # D · 감사 대응 질의
     # "F": {"engine": "SMALL_SITE_GUIDE", "model_id": "모델 이름"},  # B · 소규모 사업장 안내
 }
 
@@ -149,8 +148,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    chat_scenarios: str = CHAT_SCENARIOS
+    # SCENARIO_MODELS 표 아래, class Settings 위
+    # 통합 채팅창에서 분류할 시나리오 (글자, 쉼표로). F(소규모 사업장 안내)는 구현하지 않기로 해서 기본에서 뺐다 (11/19).
+    # F를 쓰려면 CHAT_SCENARIOS=A,E,F (F를 넣으려면 A도 함께). D·E는 처리기를 붙일 때 자기 글자를 더한다.
+    chat_scenarios: str = "A,E"
     audit_route_enabled: bool = True
+    # 기록 질문 계획을 분명한 질문만 규칙으로 먼저 정한다 (못 정하면 D의 모델 계획). 기본 꺼짐.
+    record_plan_rules: bool = True
 
     @property
     def rag_backend_path(self) -> str | None:

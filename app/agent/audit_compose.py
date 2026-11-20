@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from app.agent import audit_compose_criteria as criteria
+from app.agent import audit_narrative_guard as narrative_guard
 from app.agent.audit_compose_check import (
     StatsInvalid,
     check_corrective,
@@ -135,7 +136,18 @@ def compose_audit_report(
     built = _build_all(request, run)
 
     # P2는 선택 기능이다. 후보 생성 실패 시 P1 템플릿을 유지한다.
-    if narrative_generator is not None:
+    # 가드(평가어·날짜·핵심 값·교체 범위·시간 예산)는 audit_narrative_guard. NARRATIVE_GUARD=False면 아래 옛 루프.
+    if narrative_generator is not None and narrative_guard.NARRATIVE_GUARD:
+        narrative_guard.apply_guarded(
+            built,
+            narrative_generator,
+            allowed_numbers_of=_allowed_item_numbers,
+            make_sentence=lambda text: ComposeSentence(text=text, source="LLM"),
+            note=run.note,
+            date_from=request.date_from,
+            date_to=request.date_to,
+        )
+    elif narrative_generator is not None:
         for entry in built.values():
             item = entry.item
             if item.state == "UNAVAILABLE":

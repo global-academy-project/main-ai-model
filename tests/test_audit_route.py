@@ -117,10 +117,22 @@ def test_ambiguous_period_asks_for_one(monkeypatch, tmp_path):
     assert "하나만" in data["ask"]["message"]
 
 
-@pytest.mark.parametrize("route", [None, False])
+@pytest.mark.parametrize("route", [False])
 def test_switch_off_keeps_old_behaviour(monkeypatch, tmp_path, route):
     data = _post(_client(monkeypatch, tmp_path, route=route), f"{PERIOD} 감사 보고서 만들어줘")
     assert data["runStatus"] == "WAITING_INPUT"
     assert data["route"] is None
     assert "전용 화면" in data["ask"]["message"]
     assert data["slots"]["pendingText"] is None
+
+
+def test_default_follows_the_setting_default(monkeypatch, tmp_path):
+    """환경변수가 없으면 Settings 기본값을 따른다 (코드 기본값을 바꿔도 시험이 따라간다)."""
+    from app.core import Settings
+
+    default_on = Settings.model_fields["audit_route_enabled"].default
+    data = _post(_client(monkeypatch, tmp_path, route=None), f"{PERIOD} 감사 보고서 만들어줘")
+    if default_on:
+        assert data["runStatus"] == "DONE" and data["route"] is not None
+    else:
+        assert data["runStatus"] == "WAITING_INPUT" and data["route"] is None
