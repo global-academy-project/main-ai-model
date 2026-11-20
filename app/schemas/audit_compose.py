@@ -211,6 +211,9 @@ class ComposeOverall(CamelModel):
     links: list[OverallLine] = Field(default_factory=list)
     reference: list[OverallLine] = Field(default_factory=list)
     human_tasks: list[str] = Field(default_factory=list)
+    # 종합 의견 칸에 미리 넣을 초안. lines·확인 필요·현황 참고·항목 간 연결의 문장을 줄바꿈으로 이은 것이다
+    # (human_tasks는 넣지 않는다). 새 문장을 만들지 않고 위 목록의 문장만 쓴다. 끄면 빈 문자열.
+    draft_text: str = ""
 
 
 class ComposeVerification(CamelModel):
