@@ -17,6 +17,8 @@ source 값: 응답 스키마의 값(llm|fallback|continuation|explicit|empty)을
   어느 규칙이 골랐는지는 reason에 적힌다.
 
 끄기:
+  AUDIT_QUERY_STRICT = False  기록 질문 분리 v1 규칙 그대로 ('자료·보고서'가 든 기록 질문도 E, E 낱말만 있는 말도 E).
+  AUDIT_QUERY_SPLIT = False  기록 질문 분리 이전 규칙 그대로 (기록 조회성 문장도 E, '보고서'만 있어도 E).
   POLICY_ENABLED = False   이 파일이 아무것도 정하지 않는다 → 이전처럼 분류 LLM(router)이 모든 것을 정한다.
   POLICY_USE_LLM = True    규칙이 정하지 못한 말(되묻기 대상)을 되묻지 않고 분류 LLM에 맡긴다 (현장 모드 GUIDE→F는 그대로).
 
@@ -29,7 +31,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import replace
 
-from .scenario_router import Scenario, ScenarioDecision, build_ask
+from .scenario_router import RECORD_QUERY_GUIDE, Scenario, ScenarioDecision, build_ask
 
 POLICY_ENABLED = True
 POLICY_USE_LLM = False
@@ -62,6 +64,35 @@ AUDIT_WORDS: tuple[str, ...] = ("감사", "보고서")
 REGISTER_WORDS: tuple[str, ...] = ("등록", "신청")
 _THANKS_RE = re.compile(r"감사\s*(?:합니다|합니당|해요|했|드립|드려|히|하다|함)")
 
+# 기록 질문 분리 (C 요청 2-3, T41): 화면은 작업 등록 탭(작업 서류·감사 대응 보고서)과 기록 질문 탭(기록 조회)으로 나뉜다.
+# 그래서 감사 대응 보고서를 만들어 달라는 말만 E(보고서 분기)로 보내고, 기록을 묻는 말은 기록 질문 탭을 안내한다.
+#   1) '감사' + 보고서 요청말 (등록·신청이 없을 때)                              → E (보고서 분기)
+#   2) E 낱말 + 기록 질문말, 보고서 요청말·A의 강한 단서(등록·신청·N시)는 없음   → 기록 질문 안내 ('감사'가 있어도)
+#   3) '감사' + '대응'                                                         → E (보고서 분기)
+#   4) 그 밖에는 이전 규칙. 단 '보고서'는 E 낱말에서 뺀다 ('감사' 없이 '보고서'만 있으면 감사가 아니다)
+# 2)에 'E 낱말이 있다'를 더한 것은 이전에 E로 가던 말만 안내로 돌리기 위해서다 (등록 문장에 '알려줘'가 있어도 A 그대로).
+# 끄기: AUDIT_QUERY_SPLIT = False → 이 규칙 이전 그대로. (AUDIT_PRIORITY = False이면 함께 꺼진다)
+AUDIT_QUERY_SPLIT = True
+REPORT_WORDS: tuple[str, ...] = ("보고서", "자료", "만들", "작성", "생성")
+RECORD_WORDS: tuple[str, ...] = (
+    "실시율", "승인률", "조치율", "통계", "건수", "몇 건", "목록", "조회", "알려", "보여",
+    "빠진", "누락", "안 한", "안한", "않은",  # 뒤 다섯 개는 B가 더한 임시 낱말 ('지난달 TBM을 안 한 작업은?' 같은 말)
+)
+E_STRONG_SPLIT: tuple[str, ...] = tuple(w for w in E_STRONG if w != "보고서")
+
+# 분기 좁히기 v2 (AUDIT_QUERY_STRICT): 보고서 분기(E)는 '감사' + 보고서를 만들어 달라는 말일 때만 간다.
+#   - 만들어 달라는 동사(만들·작성·생성)가 있어야 보고서 요청이다. 명사(보고서·자료)만 있으면 기록 질문말이 우선한다
+#     ('감사 보고서 목록 보여줘', '지난달 실시율 통계 자료 알려줘' → 기록 질문 안내). 기록 질문말이 없으면 이전처럼 E.
+#   - 기록 질문말에 이력·내역·기록을 더한다 (B가 더한 임시 낱말).
+#   - E 낱말만 있고 기록 질문말도 보고서 요청도 없는 말('지난달 용접 작업')도 E로 보내지 않고 기록 질문 안내로 보낸다. (이전에는 E)
+#     되묻지 않는 까닭: 되묻기 답은 앞선 말과 이어 붙여 다시 판단하므로 '지난달' + '작업 등록' 답이 다시 되묻기가 된다 (되풀이).
+# 이전에 E로 가던 말만 바뀐다 (E → 안내). 등록·신청·N시·만들어·작성해와 만들·작성·생성이 든 말은 그대로다.
+# 끄기: AUDIT_QUERY_STRICT = False → v1 규칙 그대로. (AUDIT_QUERY_SPLIT = False이면 함께 꺼진다)
+AUDIT_QUERY_STRICT = True
+REPORT_VERBS: tuple[str, ...] = ("만들", "작성", "생성")
+REPORT_NOUNS: tuple[str, ...] = ("보고서", "자료")
+RECORD_WORDS_STRICT: tuple[str, ...] = ("이력", "내역", "기록")
+
 
 def _hits(text: str, words: Iterable[str]) -> list[str]:
     return [w for w in words if w in text]
@@ -89,6 +120,55 @@ def _ask(reason: str, allowed: tuple[Scenario, ...] | None) -> ScenarioDecision:
     )
 
 
+def _split_decision(
+    audit_text: str, e: list[str], a_strong: list[str], allowed: tuple[Scenario, ...] | None
+) -> ScenarioDecision | None:
+    """기록 질문 분리 규칙 (AUDIT_QUERY_SPLIT). None이면 이전 규칙으로 간다.
+
+    audit_text: 인사말을 지운 소문자 문장. e: 그 문장의 E 낱말('보고서' 제외). a_strong: A의 강한 단서(등록·신청·N시…).
+    """
+    audit = "감사" in audit_text
+    strict = AUDIT_QUERY_STRICT
+    report = _hits(audit_text, REPORT_VERBS if strict else REPORT_WORDS)  # strict: 만들어 달라는 동사만
+    noun = _hits(audit_text, REPORT_NOUNS) if strict else []
+    register = _hits(audit_text, REGISTER_WORDS)
+    if audit and report and not register:
+        return _scoped(
+            ScenarioDecision(Scenario.AUDIT_QUERY, RULE_CONFIDENCE, "키워드 규칙: E 감사 보고서 요청", "fallback"), allowed
+        )
+    record = _hits(audit_text, RECORD_WORDS + (RECORD_WORDS_STRICT if strict else ()))
+    # E가 채팅 범위 밖이면 안내 문구(감사 대응 보고서를 만들 수 있다)가 사실이 아니므로 이전처럼 범위 밖 안내로 간다
+    in_chat = allowed is None or Scenario.AUDIT_QUERY in allowed
+    if in_chat and e and record and not report and not a_strong:
+        return ScenarioDecision(
+            Scenario.UNKNOWN,
+            RULE_CONFIDENCE,
+            f"키워드 규칙: 기록 질문 {record[:3]} → 기록 질문 탭 안내"[:200],
+            "fallback",
+            redirect=Scenario.AUDIT_QUERY,
+            ask=RECORD_QUERY_GUIDE,
+        )
+    if audit and noun and not register:  # 기록 질문말이 없는 '감사 보고서'·'감사 자료'
+        return _scoped(
+            ScenarioDecision(Scenario.AUDIT_QUERY, RULE_CONFIDENCE, "키워드 규칙: E 감사 보고서 요청", "fallback"), allowed
+        )
+    if audit and "대응" in audit_text and not register:
+        return _scoped(
+            ScenarioDecision(Scenario.AUDIT_QUERY, RULE_CONFIDENCE, "키워드 규칙: E 감사 대응", "fallback"), allowed
+        )
+    if strict and in_chat and e and not report and not a_strong:
+        # 이전에는 E. 기록 질문말도 보고서 요청도 없고 E 낱말('지난달'·'감사' …)만 있는 말도 기록 질문 안내로 보낸다
+        return ScenarioDecision(
+            Scenario.UNKNOWN,
+            RULE_CONFIDENCE,
+            f"키워드 규칙: E 낱말 {e[:3]}만 있음 → 기록 질문 탭 안내"[:200],
+            "fallback",
+            redirect=Scenario.AUDIT_QUERY,
+            ask=RECORD_QUERY_GUIDE,
+        )
+    return None
+
+
 def decide(text: str, *, mode: str | None = None, allowed: tuple[Scenario, ...] | None = None) -> ScenarioDecision | None:
     """규칙으로 정한 결과. None이면 이 파일이 정하지 않았으니 호출한 쪽이 이전 방식(분류 LLM)으로 간다.
 
@@ -108,13 +188,17 @@ def decide(text: str, *, mode: str | None = None, allowed: tuple[Scenario, ...] 
 
     lowered = text.lower()
     audit_text = _THANKS_RE.sub(" ", lowered) if AUDIT_PRIORITY else lowered
-    e = _hits(audit_text, E_STRONG)
+    split = AUDIT_PRIORITY and AUDIT_QUERY_SPLIT
+    e = _hits(audit_text, E_STRONG_SPLIT if split else E_STRONG)
     a_strong = _hits(lowered, A_STRONG)
     if (clock := _TIME_RE.search(lowered)) is not None:
         a_strong.append(clock.group(0))
     a_weak = _hits(lowered, A_WEAK)
 
-    if AUDIT_PRIORITY and _hits(audit_text, AUDIT_WORDS) and not _hits(lowered, REGISTER_WORDS):
+    if split and (routed := _split_decision(audit_text, e, a_strong, allowed)) is not None:
+        return routed
+
+    if AUDIT_PRIORITY and not split and _hits(audit_text, AUDIT_WORDS) and not _hits(lowered, REGISTER_WORDS):
         return _scoped(
             ScenarioDecision(Scenario.AUDIT_QUERY, RULE_CONFIDENCE, "키워드 규칙: E 감사·보고서", "fallback"), allowed
         )
