@@ -49,7 +49,7 @@ def _post(client, message, slots=None):
 
 @pytest.mark.parametrize(
     "text",
-    ["감사 보고서 만들어줘", "지난달 감사 자료 작성해줘", "감사 대응 보고서 만들어 줘", "10월 감사 보고서", "지난달 실시율 알려줘"],
+    ["감사 보고서 만들어줘", "지난달 감사 자료 작성해줘", "감사 대응 보고서 만들어 줘", "10월 감사 보고서"],  # '지난달 실시율 알려줘'는 기록 질문 안내 (test_audit_query_split.py)
 )
 def test_audit_sentences_go_to_e(text):
     assert decide(text, mode="VERIFY").scenario is Scenario.AUDIT_QUERY

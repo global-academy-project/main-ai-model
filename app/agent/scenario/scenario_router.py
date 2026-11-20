@@ -47,9 +47,15 @@ class Scenario(str, Enum):
 LABELS: dict[Scenario, str] = {
     Scenario.WORK_REGISTER: "작업 등록 (위험성평가·작업허가 등 서류 만들기)",
     Scenario.DASHBOARD: "작성 현황·TBM·안전일지",
-    Scenario.AUDIT_QUERY: "지난 기록 조회·감사 대응",
+    Scenario.AUDIT_QUERY: "감사 대응 보고서 만들기",
     Scenario.GUIDE: "무엇을 준비해야 하는지 안내",
 }
+
+# 기록 질문(예: "지난달 실시율 알려줘")에 보여 줄 안내. 기록 조회는 기록 질문 탭, 감사 대응 보고서는 작업 등록 탭이다.
+# 임시 문구(C 제안, 팀 확정 전)이며 화면 문구는 이 상수 한 곳에서 바꾼다. 선택지 목록은 붙이지 않는다.
+RECORD_QUERY_GUIDE = (
+    "기록 조회는 '기록 질문' 탭에서 물어봐 주세요. 작업 등록 탭에서는 작업 서류와 감사 대응 보고서를 만들 수 있어요."
+)
 
 # B가 맡은 시나리오. 나머지는 담당자의 도구·화면으로 넘긴다.
 HANDLED_BY_B: frozenset[Scenario] = frozenset({Scenario.WORK_REGISTER, Scenario.GUIDE})

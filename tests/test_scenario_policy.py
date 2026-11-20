@@ -38,16 +38,17 @@ def test_guide_mode_goes_to_f_without_reading_the_text():
 
 
 def test_guide_mode_outside_chat_scope_redirects():
+    # 채팅 범위(A, E)에 F가 없으면 GUIDE 현장도 F로 강제하지 않는다 (guide_off). 말을 보고 가르며, 못 가르면 되묻는다.
     d = decide("안녕", mode="GUIDE", allowed=(A, E))
-    assert d.scenario is Scenario.UNKNOWN and d.redirect is F and d.ask
+    assert d.scenario is Scenario.UNKNOWN and d.redirect is None and d.ask
 
 
 @pytest.mark.parametrize("text", [
-    "지난달 감사 대응용 실시율 통계 보여줘",
-    "지난주 화기작업 기록 조회",       # 작업 단어가 있어도 E 키워드가 있고 A의 강한 단서가 없으면 E
-    "어제 허가 이력 알려줘",
-    "지난달 화기작업 알려줘",           # 시점 단어(지난달)만으로도 E 쪽 — 작업 단어는 약한 단서일 뿐이다
-])
+    "지난달 감사 대응",
+    "지난달 감사 대응 보고서",
+    "작년 감사 자료",
+    "10월 감사 보고서",
+])  # 기록 질문말·E 낱말(지난달 등)만 있는 말은 기록 질문 안내로 간다 (test_audit_query_split.py·test_audit_query_strict.py)
 def test_e_keywords_choose_e(text):
     d = decide(text, mode="VERIFY", allowed=ENTRY)
     assert d.scenario is E and d.source == "fallback" and d.confidence == scenario_policy.RULE_CONFIDENCE
@@ -74,12 +75,12 @@ def test_a_keywords_choose_a(text):
 def test_unclear_text_is_asked_back_without_llm(text):
     d = decide(text, mode="VERIFY", allowed=ENTRY)
     assert d.scenario is Scenario.UNKNOWN and d.source == "fallback" and d.ask
-    assert "작업 등록" in d.ask and "기록 조회" in d.ask
+    assert "작업 등록" in d.ask and "감사 대응" in d.ask
     assert "안내" not in d.ask  # F는 현장 모드로 정해지므로 VERIFY 사용자에게 고르게 하지 않는다
 
 
 def test_mode_none_behaves_like_verify():
-    assert decide("지난달 통계", mode=None, allowed=ENTRY).scenario is E
+    assert decide("지난달 감사 대응", mode=None, allowed=ENTRY).scenario is E
     assert decide("오늘 13시 작업", mode=None, allowed=ENTRY).scenario is A
 
 
@@ -102,7 +103,7 @@ def test_policy_disabled_decides_nothing(monkeypatch):
 def test_use_llm_hands_only_unclear_text_back(monkeypatch):
     monkeypatch.setattr(scenario_policy, "POLICY_USE_LLM", True)
     assert decide("안녕하세요", mode="VERIFY", allowed=ENTRY) is None
-    assert decide("지난달 통계", mode="VERIFY", allowed=ENTRY).scenario is E
+    assert decide("지난달 감사 대응", mode="VERIFY", allowed=ENTRY).scenario is E
     assert decide("안녕하세요", mode="GUIDE", allowed=ENTRY).scenario is F  # 모드로 정한 F는 그대로
 
 
@@ -181,7 +182,7 @@ def test_verify_a_text_dispatches_to_a_and_never_builds_the_router_model():
 def test_e_text_is_not_handled_and_builds_no_model():
     provider, built = _provider()  # 모델을 만들면 실패
     d, calls = _dispatcher(provider, retriever=_Retriever())
-    result = d.dispatch(_req("지난달 감사 대응 통계"))
+    result = d.dispatch(_req("지난달 감사 대응"))
     assert result.decision.scenario is E and result.handled is False and result.ask is None
     assert calls == [] and built == []
 
@@ -210,7 +211,7 @@ def test_in_progress_and_explicit_requests_skip_the_policy(monkeypatch):
 def test_classification_api_path_has_no_mode_and_uses_the_same_rules():
     provider, built = _provider()
     c = ScenarioClassifier(provider, _Retriever(), chat_scenarios=ENTRY)
-    r = c.classify("지난달 통계 보여줘")  # mode 없음 (분류 API)
+    r = c.classify("지난달 감사 대응")  # mode 없음 (분류 API)
     assert r.decision.scenario is E and r.rag_used is False and built == []
     assert r.scenario_model is not None and r.scenario_model.engine == "audit_query"
     unknown = c.classify("안녕하세요")
@@ -241,7 +242,7 @@ def test_policy_off_goes_back_to_the_router_llm(monkeypatch):
     llm = _Json('{"scenario": "A", "confidence": 0.9, "reason": "r"}')
     provider, built = _provider(llm)
     d, calls = _dispatcher(provider)
-    result = d.dispatch(_req("지난달 감사 이력"))  # 규칙이면 E였을 말
+    result = d.dispatch(_req("지난달 감사 대응"))  # 규칙이면 E였을 말
     assert result.decision.scenario is A and result.decision.source == "llm" and llm.calls == 1
     assert "router" in built
 
