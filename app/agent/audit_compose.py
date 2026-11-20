@@ -71,6 +71,12 @@ from app.schemas.audit_compose import (
 _KST = timezone(timedelta(hours=9))
 _LABEL = criteria.STATE_LABELS
 
+# 종합 의견 초안 (overall.draft_text). 끄기: DRAFT_TEXT = False → draft_text는 빈 문자열이고 나머지 응답은 같다.
+# 접두어 문구는 제안이며 팀 결정 전 임시값이다 (여기 한 곳).
+DRAFT_TEXT = True
+DRAFT_REVIEW_PREFIX = "확인 필요: "
+DRAFT_REFERENCE_PREFIX = "현황 참고: "
+
 
 @dataclass
 class _Built:
@@ -742,9 +748,27 @@ def _build_overall(
         tasks.append("확인 불가 항목(" + ", ".join(unavailable_areas) + ")은 기록을 직접 확인해 작성")
     tasks.append("작성자·확인자 서명")
 
+    draft_text = _draft_text(lines, review_needed, reference_lines, links) if DRAFT_TEXT else ""
     return ComposeOverall(
-        counts=scope, lines=lines, review_needed=review_needed, links=links, reference=reference_lines, human_tasks=tasks
+        counts=scope,
+        lines=lines,
+        review_needed=review_needed,
+        links=links,
+        reference=reference_lines,
+        human_tasks=tasks,
+        draft_text=draft_text,
     )
+
+
+def _draft_text(
+    lines: list[str], review_needed: list[ReviewNeeded], reference: list[OverallLine], links: list[OverallLine]
+) -> str:
+    """종합 의견 초안. 숫자 대조를 마친 위 목록의 문장만 줄바꿈으로 잇는다 (human_tasks는 뺀다)."""
+    parts = [*lines]
+    parts += [DRAFT_REVIEW_PREFIX + r.text for r in review_needed]
+    parts += [DRAFT_REFERENCE_PREFIX + o.text for o in reference]
+    parts += [o.text for o in links]
+    return "\n".join(p.strip() for p in parts if p and p.strip())
 
 
 def _bad(text: str, allowed: set[str], run: _Run) -> bool:
