@@ -37,6 +37,31 @@ def test_near_miss_llm_receives_code_descriptions_and_missing_axes_only():
     assert [tag.value for tag in work_tags] == ["ELECTRICAL"]
 
 
+def test_near_miss_llm_prompt_requires_direct_work_evidence():
+    from app.near_miss.llm import suggest_missing_tags
+    from app.near_miss.schemas import NearMissTagSuggestion
+
+    llm = FakeLLMClient([text_response(
+        '{"workType":["GENERAL"]}'
+    )])
+    existing = [
+        NearMissTagSuggestion(axis="SEVERITY", value="NEAR_MISS", confidence=1.0),
+        NearMissTagSuggestion(axis="ACCIDENT_TYPE", value="FALL", confidence=0.8),
+        NearMissTagSuggestion(axis="HAZARD", value="ENVIRONMENTAL", confidence=0.8),
+    ]
+
+    suggest_missing_tags(
+        llm,
+        request_text="탱크 외부에서 누출 상태를 점검했지만 내부에는 진입하지 않았다",
+        existing=existing,
+    )
+
+    system = llm.calls[0]["system"]
+    assert "실제 작업행위가 없으면 해당 작업 유형으로 선택하지 않습니다" in system
+    assert "내부 진입 없음" in system
+    assert "위 작업이 실제로 확인되지 않으면 GENERAL" in system
+
+
 def test_near_miss_rule_tagging_uses_scenario_c_shape():
     request = NearMissTagRequest(
         runId=51,
