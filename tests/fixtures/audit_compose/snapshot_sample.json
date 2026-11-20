@@ -1,0 +1,306 @@
+{
+  "risk_assessment_rate": {
+    "queryType": "risk_assessment_rate",
+    "title": "위험성평가 실시율",
+    "summary": "",
+    "verification": null,
+    "stats": {
+      "works": 12,
+      "written": 10,
+      "approved": 8,
+      "missing": 2,
+      "rate": 83.3,
+      "approvedRate": 66.7
+    },
+    "total": 12,
+    "truncated": false,
+    "records": [
+      {
+        "workType": "HOT",
+        "works": 5,
+        "written": 5,
+        "approved": 4,
+        "missing": 0,
+        "rate": 100.0,
+        "approvedRate": 80.0
+      },
+      {
+        "workType": "CONFINED",
+        "works": 4,
+        "written": 3,
+        "approved": 2,
+        "missing": 1,
+        "rate": 75.0,
+        "approvedRate": 50.0
+      },
+      {
+        "workType": "HEIGHT",
+        "works": 3,
+        "written": 2,
+        "approved": 2,
+        "missing": 1,
+        "rate": 66.7,
+        "approvedRate": 66.7
+      }
+    ],
+    "evidence": []
+  },
+  "permit_approval_statistics": {
+    "queryType": "permit_approval_statistics",
+    "title": "작업허가 승인 현황",
+    "summary": "",
+    "verification": null,
+    "stats": {
+      "permits": 14,
+      "requested": 13,
+      "approved": 9,
+      "rejected": 2,
+      "canceled": 1,
+      "blocked": 3,
+      "approvalRate": 81.8
+    },
+    "total": 14,
+    "truncated": false,
+    "records": [
+      {
+        "permitType": "HOT",
+        "permits": 6,
+        "requested": 6,
+        "approved": 4,
+        "rejected": 1,
+        "canceled": 0,
+        "blocked": 2,
+        "approvalRate": 80.0
+      },
+      {
+        "permitType": "CONFINED",
+        "permits": 5,
+        "requested": 4,
+        "approved": 3,
+        "rejected": 1,
+        "canceled": 1,
+        "blocked": 1,
+        "approvalRate": 75.0
+      },
+      {
+        "permitType": "HEIGHT",
+        "permits": 3,
+        "requested": 3,
+        "approved": 2,
+        "rejected": 0,
+        "canceled": 0,
+        "blocked": 0,
+        "approvalRate": 100.0
+      }
+    ],
+    "evidence": []
+  },
+  "corrective_action_rate": {
+    "queryType": "corrective_action_rate",
+    "title": "지적사항 조치율",
+    "summary": "",
+    "verification": null,
+    "stats": {
+      "actions": 6,
+      "completed": 3,
+      "verified": 1,
+      "open": 3,
+      "overdue": 1,
+      "completionRate": 50.0
+    },
+    "total": 6,
+    "truncated": false,
+    "records": [
+      {
+        "actionId": 31,
+        "title": "밀폐공간 환기 설비 점검",
+        "status": "VERIFIED",
+        "dueDate": "2026-10-10",
+        "sourceType": "INSPECTION"
+      },
+      {
+        "actionId": 32,
+        "title": "화기작업 구역 소화기 추가 비치",
+        "status": "DONE",
+        "dueDate": "2026-10-12",
+        "sourceType": "RULE_VIOLATION"
+      },
+      {
+        "actionId": 33,
+        "title": "고소작업 안전대 걸이 보강",
+        "status": "DONE",
+        "dueDate": "2026-10-15",
+        "sourceType": "NEAR_MISS"
+      },
+      {
+        "actionId": 34,
+        "title": "가스 측정기 교정 이력 정리",
+        "status": "OPEN",
+        "dueDate": "2026-10-20",
+        "sourceType": "AUDIT"
+      },
+      {
+        "actionId": 35,
+        "title": "작업허가 서식 안내 교육",
+        "status": "IN_PROGRESS",
+        "dueDate": "2026-11-30",
+        "sourceType": "OTHER"
+      },
+      {
+        "actionId": 36,
+        "title": "출입 통제 표지 보완",
+        "status": "OPEN",
+        "dueDate": "2026-12-05",
+        "sourceType": "INSPECTION"
+      }
+    ],
+    "evidence": [
+      {
+        "type": "CORRECTIVE_ACTION",
+        "id": 31
+      },
+      {
+        "type": "CORRECTIVE_ACTION",
+        "id": 32
+      },
+      {
+        "type": "CORRECTIVE_ACTION",
+        "id": 33
+      },
+      {
+        "type": "CORRECTIVE_ACTION",
+        "id": 34
+      },
+      {
+        "type": "CORRECTIVE_ACTION",
+        "id": 35
+      },
+      {
+        "type": "CORRECTIVE_ACTION",
+        "id": 36
+      }
+    ]
+  },
+  "blocked_records": {
+    "queryType": "blocked_records",
+    "title": "차단 기록",
+    "summary": "",
+    "verification": null,
+    "stats": {
+      "count": 3
+    },
+    "total": 3,
+    "truncated": false,
+    "records": [
+      {
+        "permitId": 101,
+        "permitNo": "HP-202610-0003",
+        "permitType": "HOT",
+        "evaluationId": 501,
+        "blockedAt": "2026-10-07T09:12:00",
+        "violations": [
+          {
+            "ruleCode": "FIRE_WATCH_REQUIRED",
+            "actual": null,
+            "expected": "지정",
+            "severity": "BLOCK",
+            "message": "화기작업에는 감시인을 지정해야 함",
+            "legalBasis": null
+          }
+        ],
+        "currentStatus": "REQUESTED"
+      },
+      {
+        "permitId": 102,
+        "permitNo": "CP-202610-0002",
+        "permitType": "CONFINED",
+        "evaluationId": 502,
+        "blockedAt": "2026-10-14T10:40:00",
+        "violations": [
+          {
+            "ruleCode": "CONFINED_O2_RANGE",
+            "actual": "18.2",
+            "expected": "18.0 이상",
+            "severity": "BLOCK",
+            "message": "산소 농도가 기준 범위를 벗어남",
+            "legalBasis": null
+          },
+          {
+            "ruleCode": "CONFINED_WATCHER",
+            "actual": null,
+            "expected": "지정",
+            "severity": "BLOCK",
+            "message": "감시인이 지정되지 않음",
+            "legalBasis": null
+          }
+        ],
+        "currentStatus": "APPROVED"
+      },
+      {
+        "permitId": 103,
+        "permitNo": "WH-202610-0001",
+        "permitType": "HEIGHT",
+        "evaluationId": 503,
+        "blockedAt": "2026-10-21T14:05:00",
+        "violations": [
+          {
+            "ruleCode": "HEIGHT_HARNESS",
+            "actual": null,
+            "expected": "착용",
+            "severity": "BLOCK",
+            "message": "안전대 착용 확인이 없음",
+            "legalBasis": null
+          }
+        ],
+        "currentStatus": "REJECTED"
+      }
+    ],
+    "evidence": [
+      {
+        "type": "PERMIT",
+        "id": 101
+      },
+      {
+        "type": "PERMIT",
+        "id": 102
+      },
+      {
+        "type": "PERMIT",
+        "id": 103
+      }
+    ]
+  },
+  "missing_measurements": {
+    "queryType": "missing_measurements",
+    "title": "측정값 없이 승인된 허가",
+    "summary": "",
+    "verification": null,
+    "stats": {
+      "count": 1
+    },
+    "total": 1,
+    "truncated": false,
+    "records": [
+      {
+        "permitId": 102,
+        "permitNo": "CP-202610-0002",
+        "permitType": "CONFINED",
+        "workTitle": "저장 탱크 내부 점검",
+        "location": "3구역 탱크동",
+        "writer": "작성자",
+        "approver": "승인자",
+        "approvedAt": "2026-10-14T11:20:00",
+        "missingItems": [
+          "O2",
+          "H2S"
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "type": "PERMIT",
+        "id": 102
+      }
+    ]
+  }
+}

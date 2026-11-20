@@ -150,7 +150,7 @@ class Settings(BaseSettings):
     )
 
     chat_scenarios: str = CHAT_SCENARIOS
-    audit_route_enabled: bool = False
+    audit_route_enabled: bool = True
 
     @property
     def rag_backend_path(self) -> str | None:
