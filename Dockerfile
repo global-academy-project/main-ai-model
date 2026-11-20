@@ -11,20 +11,24 @@ WORKDIR /app
 FROM base AS ml-wheelhouse
 
 COPY requirements.txt requirements.release.txt ./
+COPY metrix/requirements.txt ./metrix/requirements.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip download --only-binary=:all: --dest /tmp/wheels \
-        -r requirements.release.txt
+        -r requirements.release.txt \
+        -r metrix/requirements.txt
 
 # Install ML dependencies offline from the wheelhouse.
 FROM base AS ml-dependencies
 
 COPY requirements.txt requirements.release.txt ./
+COPY metrix/requirements.txt ./metrix/requirements.txt
 COPY --from=ml-wheelhouse /tmp/wheels /tmp/wheels
 
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir --no-index \
         --find-links=/tmp/wheels -r requirements.release.txt \
+        -r metrix/requirements.txt \
     && /opt/venv/bin/python -m pip check \
     && rm -rf /tmp/wheels \
     && mkdir -p /models/adapters /models/yolox /models/huggingface \
@@ -36,6 +40,7 @@ FROM ml-dependencies AS ai
 USER 65003:65003
 
 COPY app ./app
+COPY metrix ./metrix
 COPY adapters/extract/ /models/adapters/extract/
 COPY adapters/work_register/ /models/adapters/work_register/
 COPY adapters/helmet_nano.onnx /models/yolox/helmet_nano.onnx
@@ -43,7 +48,7 @@ COPY adapters/yolox_nano.onnx /models/yolox/yolox_nano.onnx
 
 EXPOSE 60100
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "60100"]
+CMD ["uvicorn", "metrix.main:app", "--host", "0.0.0.0", "--port", "60100"]
 
 #-------------------------[Multi-stage build Embedding image]---------------------------------------
 FROM ml-dependencies AS embedding
